@@ -473,25 +473,28 @@ async def get_my_details(user: Dict[str, Any] = Depends(get_current_user)):
     return {"success": True, "data": user}
 
 @app.get("/api/v1/resumes", tags=["Resumes"])
-async def get_user_resumes(user_id: str = Depends(get_current_user_id)):
-    """Get all resumes for the current user"""
+async def get_user_resumes(user: Dict[str, Any] = Depends(get_current_user_ids)):
+    """Get all resumes for the current user using both Platform and Auth IDs"""
     try:
-        logger.info(f"DEBUG_AUTH: Fetching resumes for user_id: {user_id}")
-        resumes = await supabase_service.get_user_resumes(user_id)
-        logger.info(f"DEBUG_AUTH: Found {len(resumes)} resumes for user_id: {user_id}")
+        user_ids = [user["platform_user_id"], user["auth_user_id"]]
+        logger.info(f"DEBUG_AUTH: Fetching resumes for user_ids: {user_ids}")
+        resumes = await supabase_service.get_user_resumes(user_ids)
+        logger.info(f"DEBUG_AUTH: Found {len(resumes)} resumes for user_ids: {user_ids}")
         return {"success": True, "data": {"resumes": resumes}}
     except Exception as e:
         logger.error(f"Error fetching resumes: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/v1/resumes/{resume_id}", tags=["Resumes"])
-async def get_resume(resume_id: str, user_id: str = Depends(get_current_user_id)):
-    """Get a specific resume"""
+async def get_resume(resume_id: str, user: Dict[str, Any] = Depends(get_current_user_ids)):
+    """Get a specific resume, authorizing by both Platform and Auth IDs"""
     try:
         resume = await supabase_service.get_resume(resume_id)
         if not resume:
             raise HTTPException(status_code=404, detail="Resume not found")
-        if resume.get("user_id") != user_id:
+        
+        # Check if user owns this resume (either ID matches)
+        if resume.get("user_id") not in [user["platform_user_id"], user["auth_user_id"]]:
             raise HTTPException(status_code=403, detail="Not authorized")
         return {"success": True, "data": resume}
     except HTTPException:
@@ -516,8 +519,8 @@ async def get_public_resume(username: str, slug: str, request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/api/v1/resumes/{resume_id}", tags=["Resumes"])
-async def delete_resume(resume_id: str, user_id: str = Depends(get_current_user_id)):
-    """Delete a resume"""
+async def delete_resume(resume_id: str, user: Dict[str, Any] = Depends(get_current_user_ids)):
+    """Delete a resume, authorizing by both Platform and Auth IDs"""
     try:
         # First verify it exists and user owns it
         resume = await asyncio.wait_for(
@@ -526,7 +529,9 @@ async def delete_resume(resume_id: str, user_id: str = Depends(get_current_user_
         )
         if not resume:
             raise HTTPException(status_code=404, detail="Resume not found")
-        if resume.get("user_id") != user_id:
+        
+        # Check if user owns this resume (either ID matches)
+        if resume.get("user_id") not in [user["platform_user_id"], user["auth_user_id"]]:
             raise HTTPException(status_code=403, detail="Not authorized")
             
         success = await asyncio.wait_for(
@@ -745,7 +750,7 @@ async def update_resume(
     resume_id: str, 
     data: dict, 
     background_tasks: BackgroundTasks,
-    user_id: str = Depends(get_current_user_id)
+    user: Dict[str, Any] = Depends(get_current_user_ids)
 ):
     """Update resume metadata or content (triggers PDF regeneration and ATS scoring)"""
     from services.resume_service import resume_service
@@ -758,7 +763,9 @@ async def update_resume(
         )
         if not resume:
             raise HTTPException(status_code=404, detail="Resume not found")
-        if resume.get("user_id") != user_id:
+        
+        # Check if user owns this resume (either ID matches)
+        if resume.get("user_id") not in [user["platform_user_id"], user["auth_user_id"]]:
             raise HTTPException(status_code=403, detail="Not authorized")
             
         # 2. Update database

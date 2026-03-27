@@ -23,14 +23,14 @@ class ProfileService:
             # We need to resolve Public ID -> Auth ID first.
             
             # 1. Resolve Auth ID
-            # Check if this looks like a UUID (it should)
-            # Query public.users to find the auth_user_id
+            # Check both 'id' (platform_id) and 'auth_user_id' in public.users
+            # This ensures that if we are passed either ID, we find the correct record.
             user_response = await self.supabase.client.table('users')\
                 .select('auth_user_id')\
-                .eq('id', user_id)\
+                .or_(f"id.eq.{user_id},auth_user_id.eq.{user_id}")\
                 .execute()
             
-            auth_user_id = user_id # Fallback
+            auth_user_id = user_id # Fallback to input ID
             if user_response.data:
                 auth_user_id = user_response.data[0]['auth_user_id']
                 
@@ -108,10 +108,10 @@ class ProfileService:
     async def create_or_update_profile(self, user_id: str, profile_data: Dict[str, Any], is_ai_import: bool = False) -> Dict[str, Any]:
         """Create or update user profile"""
         try:
-            # FIX: Resolve Public ID to Auth ID
+            # FIX: Resolve Public ID or Auth ID to consistent Auth ID
             user_response = await self.supabase.client.table('users')\
                 .select('auth_user_id')\
-                .eq('id', user_id)\
+                .or_(f"id.eq.{user_id},auth_user_id.eq.{user_id}")\
                 .execute()
             
             auth_user_id = user_id

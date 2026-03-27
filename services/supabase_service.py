@@ -258,14 +258,19 @@ class SupabaseService:
             logger.error(f"Error deleting resume: {str(e)}")
             return False
     
-    async def get_user_resumes(self, user_id: str) -> List[Dict[str, Any]]:
-        """Get all resumes for a user"""
+    async def get_user_resumes(self, user_id: Any) -> List[Dict[str, Any]]:
+        """Get all resumes for a user. Supports single ID or list of IDs."""
         try:
-            # Simple wrapper to fetch resumes
-            response = await self.client.table("resumes")\
-                .select("*")\
-                .eq("user_id", user_id)\
-                .is_("deleted_at", "null")\
+            query = self.client.table("resumes").select("*")
+            
+            if isinstance(user_id, list):
+                # Use OR filter for multiple IDs
+                id_filter = ",".join([f"user_id.eq.{uid}" for uid in user_id if uid])
+                query = query.or_(id_filter)
+            else:
+                query = query.eq("user_id", user_id)
+            
+            response = await query.is_("deleted_at", "null")\
                 .order("is_default", desc=True)\
                 .order("created_at", desc=True)\
                 .execute()
