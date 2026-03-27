@@ -11,7 +11,7 @@ class Config:
     API_SECRET_KEY: str = os.getenv("API_SECRET_KEY", "dev-secret-key-change-in-production")
     MAX_FILE_SIZE_MB: int = int(os.getenv("MAX_FILE_SIZE_MB", 10))
     MAX_FILE_SIZE_BYTES: int = MAX_FILE_SIZE_MB * 1024 * 1024
-    ALLOWED_ORIGINS: List[str] = [origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", "*").split(",") if origin.strip()]
+    ALLOWED_ORIGINS: List[str] = [origin.strip().rstrip("/") for origin in os.getenv("ALLOWED_ORIGINS", "*").split(",") if origin.strip()]
     CACHE_TTL_SECONDS: int = int(os.getenv("CACHE_TTL", 3600))
     AI_REQUEST_TIMEOUT: int = int(os.getenv("AI_REQUEST_TIMEOUT", 120))
     DEFAULT_MODEL: str = "mistralai/mistral-7b-instruct:free"
