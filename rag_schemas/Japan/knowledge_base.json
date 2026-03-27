@@ -1,0 +1,104 @@
+{
+  "country": "Japan",
+  "description": "Knowledge base for Japanese resume creation (2026)",
+  "last_updated": "2026-01-15",
+
+  "ats_optimization": {
+    "description": "Rules to make rirekisho and shokumukeirekisho readable by Japanese ATS systems",
+    "fonts": ["MS Mincho", "MS Gothic"],
+    "font_size": "10–12pt for text, 14–16pt for headings",
+    "file_format": "PDF preferred, DOCX acceptable if requested",
+    "layout": "simple, single-column, monochrome",
+    "avoid": [
+      "image-based PDFs",
+      "tables",
+      "columns",
+      "text boxes",
+      "complex graphics"
+    ],
+    "must_have": [
+      "Japanese section headings",
+      "keywords from job posting (Japanese + English)",
+      "consistent formatting",
+      "matching dates between rirekisho and shokumukeirekisho"
+    ]
+  },
+
+  "cv_structure": {
+    "max_pages": 2,
+    "order": [
+      "Personal Information (氏名・連絡先)",
+      "Education (学歴)",
+      "Work Experience (職歴)",
+      "Qualifications & Licenses (資格・免許)",
+      "Skills (スキル)",
+      "Self-PR (自己PR)",
+      "Motivation (志望動機)"
+    ],
+    "mandatory_sections": {
+      "personal_info": {
+        "required": ["Full name", "Address", "Phone", "Email", "Photo (4×3cm)"],
+        "optional": ["Date of birth", "Gender (optional)"],
+        "notes": "Professional ID-style photo required for most companies"
+      },
+      "experience": {
+        "format": "Company, Position, Dates (YYYY.MM – YYYY.MM)",
+        "bullets": "3–5 concise bullet points with measurable results",
+        "style": "Use formal Japanese (です／ます) or である調; no casual phrasing"
+      },
+      "education": {
+        "format": "School, Department, Graduation Date",
+        "order": "Chronological (oldest to newest)"
+      },
+      "skills": {
+        "include": "Technical skills, certifications, languages with JLPT/TOEIC levels",
+        "notes": "Include both Japanese and English keywords for technical terms"
+      }
+    }
+  },
+
+  "cultural_rules": {
+    "photo": "Required – formal attire, light background, within last 3 months",
+    "tone": "Formal, polite, culturally respectful; avoid emotional or casual tone",
+    "length": "Typically 1–2 pages per document (rirekisho + shokumukeirekisho)",
+    "references": "Rarely included; mention 'available upon request' if needed",
+    "date_format": "YYYY.MM.DD (e.g., 2025.10.15)"
+  },
+
+  "industry_keywords": {
+    "Technology/IT": ["Python", "Java", "Cloud Computing", "AI", "DevOps", "Kubernetes", "Docker"],
+    "Finance/Banking": ["簿記", "CFA", "Excel", "Risk Management"],
+    "Manufacturing/Engineering": ["PLC", "CAD", "Automation", "品質管理"],
+    "Healthcare/Pharma": ["医師免許", "看護師資格", "薬剤師免許", "Clinical Trials"],
+    "Retail/Hospitality": ["Customer Service", "Tourism", "Multilingual Communication"]
+  },
+
+  "top_skills_2026": {
+    "hard_skills": [
+      "AI & Machine Learning",
+      "Cloud Development",
+      "Data Analytics",
+      "IoT / Industry 4.0",
+      "Cybersecurity",
+      "Automation Engineering"
+    ],
+    "soft_skills": [
+      "Communication (コミュニケーション能力)",
+      "Teamwork (協調性)",
+      "Cultural Adaptability",
+      "Responsibility (責任感)",
+      "Enthusiasm (主体性・熱意)"
+    ]
+  },
+
+  "job_market_info": {
+    "total_job_openings": "8.3 million",
+    "highest_demand_sectors": [
+      "IT & Tech (AI, Data Science, Cloud)",
+      "Healthcare",
+      "Manufacturing & Engineering",
+      "Retail/Tourism (multilingual demand)"
+    ],
+    "language_requirement": "JLPT N2 or above for most roles; N1 for executive/client-facing"
+  }
+}

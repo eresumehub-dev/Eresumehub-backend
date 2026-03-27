@@ -1,0 +1,31 @@
+# Environments
+.env
+.venv/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Logs
+logs/
+*.log
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Pytest / Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+*.tox
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Project-Specific Temporary Files
+*.pdf
+crash_report_*.txt
+debug_*.html

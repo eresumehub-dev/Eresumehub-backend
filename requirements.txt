@@ -1,0 +1,51 @@
+# ===============================
+#  CORE FRAMEWORK
+# ===============================
+fastapi>=0.100.0
+uvicorn[standard]>=0.20.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+pydantic[email]>=2.0.0      # Added email validation support
+httpx>=0.23.0              # Async HTTP client
+
+# ===============================
+#  OPENAI / LLM SUPPORT
+# ===============================
+openai>=1.12.0
+google-generativeai==0.3.2  # Google Gemini AI
+tenacity==8.2.3            # Retry logic for AI calls
+cachetools==5.3.2          # Caching AI responses
+sentry-sdk[fastapi]==1.40.0  # Error tracking
+prometheus-client==0.19.0  # Metrics
+
+
+
+# ===============================
+#  FILE UPLOAD / DATA PROCESSING
+# ===============================
+python-multipart==0.0.6
+
+PyPDF2==3.0.1              # PDF text extraction
+docx2txt==0.8              # DOCX parsing
+
+# ===============================
+#  RATE LIMITING / SECURITY
+# ===============================
+slowapi==0.1.9             # API rate limiting
+redis==5.0.1               # Distributed caching (optional)
+loguru==0.7.2              # Structured logging
+
+# ===============================
+#  MISSING DEPENDENCIES (ADDED)
+# ===============================
+email-validator==2.1.0     # Email validation for pydantic
+aiofiles==23.2.1           # Async file operations
+supabase>=2.3.0
+xhtml2pdf==0.2.15
+pandas>=2.0.0
+numpy>=1.24.0
+PyMuPDF==1.22.5            # Replaces 'fitz'
+
+# ===============================
+#  DEVELOPMENT UTILITIES (REMOVED)
+# ===============================

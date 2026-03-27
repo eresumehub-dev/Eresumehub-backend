@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="{{ rag_data.language_code }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resume - {{ user_data.full_name }}</title>
+    <style>
+        /* --- ATS & DESIGN OPTIMIZATIONS --- */
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            background-color: #fff;
+            /* xhtml2pdf built-in Asian font support: HeiseiMin-W3 is most reliable for body */
+            font-family: 'HeiseiMin-W3', 'MS Gothic', 'Times-Roman', serif; 
+            font-size: 11pt;
+            color: #000;
+            line-height: 1.35; 
+        }
+
+        @page {
+            size: A4;
+            margin: 0.75in;
+        }
+
+        .page {
+            width: 100%;
+            margin: 0 auto;
+        }
+
+        a { color: #000; text-decoration: none; }
+
+        /* SECTIONS */
+        section { margin-bottom: 12px; clear: both; }
+
+        h2 {
+            font-size: 12pt;
+            text-transform: uppercase;
+            border-bottom: 1px solid #000;
+            margin-bottom: 6px; 
+            padding-bottom: 2px;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+            /* Use Mincho for section headers as KakuGo-W5 sometimes fails to render glyphs */
+            font-family: 'HeiseiMin-W3', 'MS Gothic', Helvetica, Arial, sans-serif;
+            -pdf-outline: false;
+            -pdf-outline-level: 0;
+        }
+
+        /* ENTRY LAYOUT (Tables for strict alignment) */
+        .entry-table { width: 100%; border-collapse: collapse; margin-bottom: 2px; }
+        
+        .entry-table td { vertical-align: top; } 
+        
+        .entry-left { text-align: left; padding-right: 10px; }
+        .entry-right { text-align: right; white-space: nowrap; font-weight: bold; }
+
+        .sub-header { width: 100%; display: block; margin-bottom: 2px; font-style: italic; }
+        
+        /* LISTS */
+        ul { list-style-type: disc; margin-left: 20px; margin-top: 2px; margin-bottom: 6px; }
+        li { margin-bottom: 1px; text-align: left; }
+        
+        .label { font-weight: bold; }
+        .summary-text { text-align: justify; margin-bottom: 5px; }
+    </style>
+</head>
+<body>
+    <div class="page">
+        
+        <table style="width: 100%; border-collapse: collapse; border: none; margin-bottom: 15px; font-family: 'Times-Roman', 'HeiseiMin-W3', serif;">
+            <tr>
+                <td style="vertical-align: top; text-align: left; padding-right: 15px; padding-top: 5px;">
+                    
+                    <h1 style="
+                        margin: 0; 
+                        font-size: 34pt; 
+                        font-weight: normal; 
+                        text-transform: uppercase; 
+                        color: #000;
+                        line-height: 1.0;
+                        letter-spacing: 0.5px;
+                        margin-bottom: 8px;
+                        font-family: 'HeiseiMin-W3', 'MS Gothic', Helvetica, Arial, sans-serif;
+                        -pdf-outline: false;
+                        -pdf-outline-level: 0;
+                    ">
+                        {{ user_data.full_name }}
+                    </h1>
+
+                    {% if user_data.headline %}
+                    <div style="
+                        font-size: 12pt; 
+                        color: #444; 
+                        font-family: 'HeiseiMin-W3', 'MS Gothic', Helvetica, Arial, sans-serif;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        margin-bottom: 8px;
+                        font-weight: bold;
+                    ">
+                        {{ user_data.headline }}
+                    </div>
+                    {% endif %}
+                    
+                    <div style="font-size: 10pt; color: #000; line-height: 1.5; font-family: 'HeiseiMin-W3', 'MS Gothic', Helvetica, Arial, sans-serif;">
+                        
+                        {# Address Line #}
+                        {% set address_parts = [] %}
+                        {% if user_data.street_address %}{% set _ = address_parts.append(user_data.street_address) %}{% endif %}
+                        {% if user_data.postal_code %}{% set _ = address_parts.append(user_data.postal_code + ' ' + (user_data.city or '')) %}{% endif %}
+                        {% if user_data.country %}{% set _ = address_parts.append(user_data.country) %}{% endif %}
+                        
+                        {% if address_parts %}
+                            <div style="margin-bottom: 2px;">
+                                <span style="font-weight:bold; color:#444;">{{ rag_data.labels.address|default('Address') }}:</span> {{ address_parts|join(', ') }}
+                            </div>
+                        {% endif %}
+
+                        {% if user_data.contact.phone %}
+                            <div style="margin-bottom: 2px;">
+                                <span style="font-weight:bold; color:#444;">{{ rag_data.labels.phone|default('Phone') }}:</span> {{ user_data.contact.phone }}
+                            </div>
+                        {% endif %}
+                        
+                        {% if user_data.contact.city and not user_data.street_address %}
+                            <div style="margin-bottom: 2px;">
+                                <span style="font-weight:bold; color:#444;">{{ rag_data.labels.location|default('Location') }}:</span> {{ user_data.contact.city + (', ' + user_data.contact.country if user_data.contact.country else '') }}
+                            </div>
+                        {% endif %}
+
+                        {% if user_data.contact.email %}
+                            <div style="margin-bottom: 2px;">
+                                <span style="font-weight:bold; color:#444;">{{ rag_data.labels.email|default('Email') }}:</span> <span style="color:#000;">{{ user_data.contact.email }}</span>
+                            </div>
+                        {% endif %}
+
+                        {% if user_data.contact.linkedin %}
+                            <div style="margin-bottom: 2px;">
+                                <span style="font-weight:bold; color:#444;">{{ rag_data.labels.profile|default('Profile') }}:</span> <span style="color:#000;">{{ user_data.contact.linkedin|replace('https://', '')|replace('http://', '') }}</span>
+                            </div>
+                        {% endif %}
+
+                        {# Identity Line #}
+                        {% set identity_parts = [] %}
+                        {% if user_data.date_of_birth %}
+                            {% set _ = identity_parts.append('<span style="font-weight:bold; color:#444;">' + (rag_data.labels.born|default('Born')) + ':</span> ' + user_data.date_of_birth) %}
+                        {% endif %}
+                        {% if user_data.nationality %}
+                            {% set _ = identity_parts.append('<span style="font-weight:bold; color:#444;">' + (rag_data.labels.nationality|default('Nationality')) + ':</span> ' + user_data.nationality) %}
+                        {% endif %}
+                        
+                        {% if identity_parts %}
+                            <div style="margin-top: 2px;">
+                                {{ identity_parts|join(' <span style="margin: 0 8px; color: #ccc;">|</span> ')|safe }}
+                            </div>
+                        {% endif %}
+
+                        {% if user_data.links %}
+                        <div>
+                            {% set line3 = [] %}
+                            {% for link in user_data.links %}
+                                {# HEURISTIC: Skip links that look like photos to prevent redundance #}
+                                {% if 'photo' not in link.label|lower and 'image' not in link.label|lower and '.jpg' not in link.url|lower and '.png' not in link.url|lower %}
+                                    {% set anchor = '<span style="color:#000;">' + link.url|replace('https://', '')|replace('http://', '')|truncate(40) + '</span>' %}
+                                    {% set _ = line3.append('<span style="font-weight:bold; color:#444;">' + link.label + ':</span> ' + anchor) %}
+                                {% endif %}
+                            {% endfor %}
+                            {{ line3|join(' <span style="margin: 0 8px; color: #ccc;">|</span> ')|safe }}
+                        </div>
+                        {% endif %}
+
+                    </div>
+                </td>
+
+                {# Professional Photo Section #}
+                {% if user_data.profile_pic_base64 or user_data.profile_pic_url or user_data.photo_url %}
+                <td style="vertical-align: top; text-align: right; width: 38mm;">
+                    <div style="
+                        width: 35mm; 
+                        height: 45mm; 
+                        overflow: hidden; 
+                        display: inline-block;
+                        background-color: #f5f5f5;
+                        border: 1px solid #ddd;
+                        text-align: center;
+                    ">
+                        {% if user_data.profile_pic_base64 %}
+                             <img src="{{ user_data.profile_pic_base64 }}" style="width: 100%; height: 100%;" />
+                        {% elif user_data.profile_pic_url %}
+                             <img src="{{ user_data.profile_pic_url }}" style="width: 100%; height: 100%;" />
+                        {% elif user_data.photo_url %}
+                             <img src="{{ user_data.photo_url }}" style="width: 100%; height: 100%;" />
+                        {% endif %}
+                    </div>
+                </td>
+                {% endif %}
+            </tr>
+        </table>
+        
+        <div style="border-bottom: 1px solid #000; margin-bottom: 15px; margin-top: 5px;"></div>
+
+        <!-- Section: Education -->
+        {% if user_data.educations %}
+        <section>
+            <h2>{{ rag_data.section_headings.education|default('Education') }}</h2>
+            {% for edu in user_data.educations %}
+            <table class="entry-table">
+                <tr>
+                    <td class="entry-left" width="80%">
+                        <span style="font-weight: bold; font-size: 11pt;">{{ edu.institution }}</span>
+                    </td>
+                    <td class="entry-right" width="20%">
+                        <span>{{ edu.graduation_date|default('') }}</span>
+                    </td>
+                </tr>
+                <tr>
+                    <td class="entry-left" colspan="2" style="font-style: italic; color: #333;">
+                        {{ edu.degree }}
+                    </td>
+                </tr>
+            </table>
+            <div style="margin-bottom: 6px;"></div> 
+            {% endfor %}
+        </section>
+        {% endif %}
+
+        <!-- Section: Work Experience -->
+        {% if user_data.work_experiences %}
+        <section>
+            <h2>{{ rag_data.section_headings.experience|default('Work Experience') }}</h2>
+            {% for job in user_data.work_experiences %}
+            <table class="entry-table">
+                <tr>
+                    <td class="entry-left" width="75%">
+                        <span style="font-weight: bold; font-size: 11pt;">{{ job.company }}</span>
+                    </td>
+                    <td class="entry-right" width="25%">
+                        {% if job.start_date %}
+                        {{ job.start_date }}{% if job.end_date %} – {{ job.end_date }}{% else %} – Present{% endif %}
+                        {% endif %}
+                    </td>
+                </tr>
+                <tr>
+                    <td class="entry-left" colspan="2" style="font-style: italic; color: #333; padding-bottom: 2px;">
+                        {{ job.job_title }} {% if job.city %}- {{ job.city }}{% endif %}
+                    </td>
+                </tr>
+            </table>
+            
+            {% if job.description %}
+            <ul>
+                {% for bullet in job.description %}
+                <li>{{ bullet }}</li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+            {% endfor %}
+        </section>
+        {% endif %}
+
+        <!-- Section: Certifications -->
+        {% if user_data.certifications %}
+        <section>
+            <h2>{{ rag_data.section_headings.certifications|default('Qualifications & Licenses') }}</h2>
+            {% for cert in user_data.certifications %}
+            <table class="entry-table">
+                <tr>
+                    <td class="entry-left" width="75%">
+                        <span style="font-weight: bold;">{{ cert.name }}</span> {% if cert.issuing_organization %}- {{ cert.issuing_organization }}{% endif %}
+                    </td>
+                    <td class="entry-right" width="25%">
+                        {{ cert.issue_date }}
+                    </td>
+                </tr>
+            </table>
+            {% endfor %}
+        </section>
+        {% endif %}
+
+        <!-- Section: Skills & Languages -->
+        {% if user_data.skills or user_data.languages %}
+        <section style="margin-top: 15px;">
+            <h2>{{ rag_data.section_headings.skills|default('Skills') }}</h2>
+            {% if user_data.skills %}
+            <div style="margin-top: 5px;">
+                <p style="text-align: justify;">{{ user_data.skills|join(', ') }}</p>
+            </div>
+            {% endif %}
+            {% if user_data.languages %}
+            <div style="margin-top: 5px;">
+                <ul style="margin-top: 0; padding-left: 20px;">
+                    {% for lang in user_data.languages %}
+                        <li style="margin-bottom: 2px;">
+                            {%- if lang is mapping -%}
+                                <strong>{{ lang.name or lang.language }}</strong>: {{ lang.level or lang.proficiency_cefr }}
+                            {%- else -%}
+                                {{ lang }}
+                            {%- endif -%}
+                        </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+        </section>
+        {% endif %}
+
+        <!-- Section: Self-PR -->
+        {% if user_data.self_pr or user_data.professional_summary %}
+        <section>
+            <h2>{{ rag_data.section_headings.self_pr|default('Self-PR (自己PR)') }}</h2>
+            <div class="summary-text">
+                {{ user_data.self_pr or user_data.professional_summary }}
+            </div>
+        </section>
+        {% endif %}
+
+        <!-- Section: Motivation -->
+        {% if user_data.motivation %}
+        <section>
+            <h2>{{ rag_data.section_headings.motivation|default('Motivation (志望動機)') }}</h2>
+            <div class="summary-text">
+                {{ user_data.motivation }}
+            </div>
+        </section>
+        {% endif %}
+
+    </div>
+</body>
+</html>

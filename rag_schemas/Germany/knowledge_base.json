@@ -1,0 +1,166 @@
+{
+  "country": "Germany",
+  "description": "Knowledge base for German CV creation (2025-2026)",
+  "ats_optimization": {
+    "description": "Rules to make resume readable by computer systems",
+    "fonts": [
+      "Arial",
+      "Calibri",
+      "Times New Roman",
+      "Helvetica"
+    ],
+    "font_size": "11-12pt for text, 14-16pt for headings",
+    "file_format": "PDF or DOCX",
+    "layout": "single-column, simple and clean",
+    "avoid": [
+      "Graphics and images",
+      "Tables with data",
+      "Multiple columns",
+      "Fancy colors",
+      "Headers/footers with important info"
+    ],
+    "must_have": [
+      "German section headings",
+      "Keywords from job posting",
+      "Clear structure",
+      "Consistent date format (DD.MM.YYYY or MM.YYYY)"
+    ]
+  },
+  "cv_structure": {
+    "max_pages": 2,
+    "order": [
+      "Personal Information (with optional photo)",
+      "Professional Summary (optional, 2-3 lines)",
+      "Work Experience (reverse chronological)",
+      "Education",
+      "Skills & Languages",
+      "Certifications (optional)",
+      "References (just write 'available upon request')"
+    ],
+    "mandatory_sections": {
+      "personal_info": {
+        "required": [
+          "Full name",
+          "Email",
+          "Phone",
+          "City",
+          "Date of birth",
+          "Nationality"
+        ],
+        "optional": [
+          "Photo",
+          "Marital Status"
+        ]
+      },
+      "experience": {
+        "format": "Company, Job Title, Dates (MM.YYYY - MM.YYYY)",
+        "bullets": "3-5 bullet points per job with achievements",
+        "style": "No 'I' or 'me', start with action verbs"
+      },
+      "education": {
+        "format": "Degree, University, Graduation Date",
+        "include_gpa": "Only if good (3.5+ out of 4.0)"
+      },
+      "skills": {
+        "include": "Technical skills, Software, Languages with proficiency level",
+        "language_format": "Use A1-C2 scale (A1=beginner, C2=native)"
+      }
+    }
+  },
+  "cultural_rules": {
+    "photo": "Optional but common - professional headshot, top-right corner",
+    "tone": "Formal and professional",
+    "length": "Maximum 2 pages",
+    "references": "Don't list references, just say 'available upon request'",
+    "date_format": "DD.MM.YYYY (15.10.2025) or MM.YYYY (10.2025)"
+  },
+  "hiring_psychology": {
+    "tone_guide": {
+      "sentence_structure": "Compound sentences with technical precision. Avoid fragmentary 'bullet-speak'.",
+      "self_promotion": "Humble expertise backed by facts. Strict avoidance of 'marketing fluff' or 'rockstar' terminology.",
+      "buzzword_tolerance": "Low - prefer standard industry terms and recognized certifications."
+    },
+    "trust_signals": {
+      "red_flags": [
+        "Job hopping (<2 years per role)",
+        "Vague responsibilities without scale",
+        "Overly casual language",
+        "Inconsistent dates"
+      ],
+      "green_flags": [
+        "Long tenure (3+ years)",
+        "Formal certifications (TÜV, ISO, IHK)",
+        "German language proficiency mentions",
+        "Technical depth"
+      ]
+    },
+    "dealbreakers": [
+      "Spelling errors (seen as lack of diligence)",
+      "Gaps in CV without explanation"
+    ]
+  },
+  "industry_keywords": {
+    "IT": [
+      "Python",
+      "Java",
+      "Cloud Computing",
+      "DevOps",
+      "Agile",
+      "Docker",
+      "Kubernetes"
+    ],
+    "Engineering": [
+      "CAD",
+      "Industry 4.0",
+      "Quality Assurance",
+      "Project Management"
+    ],
+    "Healthcare": [
+      "Patient Care",
+      "Medical Certifications",
+      "Healthcare Regulations"
+    ],
+    "Finance": [
+      "Financial Analysis",
+      "SAP",
+      "Excel",
+      "Risk Management"
+    ],
+    "Marketing": [
+      "SEO",
+      "Social Media",
+      "Google Analytics",
+      "Content Marketing"
+    ]
+  },
+  "top_skills_2025": {
+    "hard_skills": [
+      "Artificial Intelligence",
+      "Cybersecurity",
+      "Cloud Computing (AWS, Azure)",
+      "Data Analytics",
+      "Programming (Python, Java)",
+      "Project Management"
+    ],
+    "soft_skills": [
+      "Teamwork",
+      "Communication",
+      "Problem Solving",
+      "Time Management",
+      "Leadership",
+      "Adaptability"
+    ]
+  },
+  "job_market_info": {
+    "total_job_openings": "770,000+",
+    "highest_demand_sectors": [
+      "IT & Technology (149,000 shortage)",
+      "Healthcare (220,000 openings)",
+      "Engineering (48,000 vacancies)"
+    ],
+    "language_requirement": "Minimum B1 German for most jobs, B2 for healthcare"
+  },
+  "required_languages": [
+    "German"
+  ]
+}

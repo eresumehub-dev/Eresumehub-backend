@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="{{ rag_data.language_code }}">
+<head>
+    <meta charset="UTF-8">
+    <title>Resume - {{ user_data.full_name }}</title>
+    <style>
+        @page { size: A4; margin: 0; }
+        body {
+            font-family: 'Segoe UI', 'Roboto', sans-serif;
+            margin: 0;
+            padding: 0;
+            color: #333;
+        }
+        .header {
+            background: linear-gradient(135deg, #a855f7 0%, #ec4899 100%);
+            padding: 40px;
+            color: white;
+            text-align: left;
+        }
+        .header h1 {
+            font-size: 32pt;
+            margin: 0;
+            font-weight: 800;
+            letter-spacing: -1px;
+        }
+        .header .title {
+            font-size: 16pt;
+            opacity: 0.9;
+            margin-top: 5px;
+        }
+        .content {
+            padding: 40px;
+            display: table;
+            width: 100%;
+        }
+        .main {
+            display: table-cell;
+            width: 65%;
+            padding-right: 30px;
+            vertical-align: top;
+        }
+        .sidebar {
+            display: table-cell;
+            width: 35%;
+            vertical-align: top;
+            border-left: 1px solid #eee;
+            padding-left: 30px;
+        }
+        .section-title {
+            font-size: 14pt;
+            font-weight: 700;
+            color: #a855f7;
+            margin-bottom: 15px;
+            margin-top: 25px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .job-entry { margin-bottom: 20px; }
+        .job-title { font-weight: 700; font-size: 12pt; color: #111; }
+        .job-company { color: #666; font-size: 10.5pt; margin-bottom: 4px; }
+        .job-date { color: #999; font-size: 9pt; }
+        ul { margin: 8px 0 0 15px; padding: 0; }
+        li { margin-bottom: 5px; font-size: 10pt; line-height: 1.5; }
+        .contact-item { margin-bottom: 10px; font-size: 10pt; }
+        .contact-item strong { display: block; color: #a855f7; font-size: 8pt; text-transform: uppercase; }
+        .skill-tag {
+            display: inline-block;
+            background: #f3f4f6;
+            padding: 4px 10px;
+            border-radius: 6px;
+            margin: 0 5px 5px 0;
+            font-size: 9pt;
+            color: #4b5563;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>{{ user_data.full_name }}</h1>
+        <div class="title">{{ user_data.title or job_role or 'Professional' }}</div>
+    </div>
+    <div class="content">
+        <div class="main">
+            {% if user_data.professional_summary or user_data.summary_text or user_data.summary %}
+            <div class="section-title">Profile</div>
+            <p style="font-size: 10.5pt; line-height: 1.6;">{{ user_data.professional_summary or user_data.summary_text or user_data.summary }}</p>
+            {% endif %}
+
+            {% if user_data.work_experiences %}
+            <div class="section-title">Experience</div>
+            {% for job in user_data.work_experiences %}
+            <div class="job-entry">
+                <div class="job-title">{{ job.job_title }}</div>
+                <div class="job-company">{{ job.company }} | {{ job.start_date }} - {{ job.end_date or 'Present' }}</div>
+                {% if job.achievements %}
+                <ul>
+                    {% for bullet in job.achievements %}
+                    <li>{{ bullet }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+            {% endfor %}
+            {% endif %}
+
+            {% if user_data.projects %}
+            <div class="section-title">Projects</div>
+            {% for proj in user_data.projects %}
+            <div class="job-entry">
+                <div class="job-title">{{ proj.title }}{{ ' | ' + proj.role if proj.role else '' }}</div>
+                <div class="job-company">
+                    {{ proj.start_date }} - {{ proj.end_date or 'Present' }}
+                    {% if proj.link %}
+                    | <a href="{{ proj.link }}" style="color: #ec4899; text-decoration: none;">Link</a>
+                    {% endif %}
+                </div>
+                <div style="font-size: 10pt; line-height: 1.5; margin-top: 5px;">{{ proj.description }}</div>
+                {% if proj.technologies %}
+                <div style="font-size: 8.5pt; color: #666; margin-top: 3px;">
+                    <strong>Stack:</strong> {{ proj.technologies|join(', ') }}
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+            {% endif %}
+        </div>
+        <div class="sidebar">
+            <div class="section-title">Contact</div>
+            {% if user_data.contact.email %}<div class="contact-item"><strong>Email</strong>{{ user_data.contact.email }}</div>{% endif %}
+            {% if user_data.contact.phone %}<div class="contact-item"><strong>Phone</strong>{{ user_data.contact.phone }}</div>{% endif %}
+            {% if user_data.contact.city %}<div class="contact-item"><strong>Location</strong>{{ user_data.contact.city }}</div>{% endif %}
+
+            {% if user_data.links %}
+            <div class="section-title">Links</div>
+            {% for link in user_data.links %}
+            <div class="contact-item">
+                <strong>{{ link.label }}</strong>
+                <a href="{{ link.url }}" style="color: #a855f7; text-decoration: none; font-size: 9pt;">{{ link.url|replace('https://', '')|replace('http://', '')|truncate(30) }}</a>
+            </div>
+            {% endfor %}
+            {% endif %}
+
+            {% if user_data.skills %}
+            <div class="section-title">Skills</div>
+            <div>
+                {% for skill in user_data.skills %}
+                <span class="skill-tag">{{ skill }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            {% if user_data.educations %}
+            <div class="section-title">Education</div>
+            {% for edu in user_data.educations %}
+            <div style="margin-bottom: 15px;">
+                <div style="font-weight: bold; font-size: 10pt;">{{ edu.degree }}</div>
+                <div style="font-size: 9pt; color: #666;">{{ edu.institution }}</div>
+                <div style="font-size: 8.5pt; color: #999;">{{ edu.graduation_date }}</div>
+            </div>
+            {% endfor %}
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

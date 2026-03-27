@@ -1,0 +1,69 @@
+{
+  "language": "en_US",
+  "language_name": "English",
+  "country": "Germany",
+  "note": "For English-speaking expats applying to German companies",
+  
+  "section_headings": {
+    "personal_info": "Personal Information",
+    "summary": "Professional Summary",
+    "experience": "Professional Experience",
+    "education": "Education",
+    "skills": "Skills & Competencies",
+    "languages": "Language Proficiency",
+    "certifications": "Certifications",
+    "references": "References"
+  },
+  
+  "action_verbs": [
+    "Developed",
+    "Coordinated",
+    "Optimized",
+    "Led",
+    "Implemented",
+    "Analyzed",
+    "Increased",
+    "Managed",
+    "Designed",
+    "Planned",
+    "Supervised",
+    "Improved"
+  ],
+  
+  "common_phrases": {
+    "present": "Present",
+    "to": "to",
+    "references_available": "Available upon request",
+    "languages": "Languages",
+    "skills": "Skills",
+    "experience_years": "years of experience"
+  },
+  
+  "language_levels": {
+    "A1": "Beginner",
+    "A2": "Elementary",
+    "B1": "Intermediate",
+    "B2": "Upper Intermediate",
+    "C1": "Advanced",
+    "C2": "Native/Bilingual"
+  },
+  
+  "date_format": "MM/YYYY",
+  "date_separator": "/",
+  
+  "example_bullets": [
+    "Increased sales by 25% in Q1 through implementation of new strategies",
+    "Developed a new software solution that improved efficiency by 30%",
+    "Led a team of 10 people to successful project completion",
+    "Optimized production process and reduced costs by 15%",
+    "Implemented a new CRM system for 200+ users"
+  ],
+  
+  "formatting_rules": {
+    "bullet_start": "Use action verbs (Developed, Led, etc.)",
+    "no_pronouns": "Avoid using 'I' or 'me'",
+    "formal_tone": "Professional and formal tone",
+    "metrics": "Always include numbers and percentages",
+    "german_standards": "Still follow German CV structure (photo optional, 2 pages max)"
+  }
+}

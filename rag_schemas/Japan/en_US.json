@@ -1,0 +1,57 @@
+{
+  "language": "en_US",
+  "language_name": "English",
+  "country": "Japan",
+  "section_headings": {
+    "personal_info": "Personal Information (氏名・連絡先)",
+    "education": "Education (学歴)",
+    "experience": "Work Experience (職歴)",
+    "skills": "Skills (スキル)",
+    "certifications": "Certifications (資格・免許)",
+    "self_pr": "Self-PR (自己PR)",
+    "motivation": "Motivation (志望動機)"
+  },
+  "labels": {
+    "address": "Address",
+    "phone": "Phone",
+    "email": "Email",
+    "profile": "Profile",
+    "born": "Born",
+    "nationality": "Nationality",
+    "location": "Location",
+    "photo": "Photo"
+  },
+  "date_format": "YYYY.MM.DD",
+  "action_verbs": [
+    "Executed",
+    "Developed",
+    "Proposed",
+    "Managed",
+    "Achieved",
+    "Improved",
+    "Contributed",
+    "Led",
+    "Implemented",
+    "Designed",
+    "Analyzed",
+    "Optimized"
+  ],
+  "common_phrases": {
+    "present": "Present",
+    "to": "to",
+    "references_available": "Available upon request",
+    "years_experience": "years of experience"
+  },
+  "language_levels": {
+    "JLPT_N1": "JLPT N1 – Required for executive or client-facing roles",
+    "JLPT_N2": "JLPT N2 – Required for most professional positions",
+    "JLPT_N3": "JLPT N3 – Acceptable for technical roles",
+    "TOEIC_800": "TOEIC 800+ – Required for international roles"
+  },
+  "formatting_rules": {
+    "bullet_start": "Start with action verbs (Developed, Managed, etc.)",
+    "no_pronouns": "Avoid 'I' or 'me'",
+    "formal_tone": "Polite and professional",
+    "metrics": "Always include numbers and percentages"
+  }
+}

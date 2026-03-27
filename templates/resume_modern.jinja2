@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="{{ rag_data.language_code }}">
+<head>
+    <meta charset="UTF-8">
+    <title>Resume - {{ user_data.full_name }}</title>
+    <style>
+        @page { size: A4; margin: 0; }
+        body {
+            font-family: 'Segoe UI', 'Roboto', sans-serif;
+            margin: 0;
+            padding: 0;
+            color: #333;
+            /* Removed height: 100% to fix xhtml2pdf crash */
+        }
+        .container {
+            display: table; /* Simulate flex with table for PDF libraries usually better */
+            width: 100%;
+            /* Removed height: 100% to fix xhtml2pdf crash */
+        }
+        .sidebar {
+            display: table-cell;
+            width: 30%;
+            background-color: #f4f6f9;
+            padding: 30px 20px;
+            vertical-align: top;
+            border-right: 1px solid #e1e4e8;
+        }
+        .main-content {
+            display: table-cell;
+            width: 70%;
+            padding: 30px 40px;
+            vertical-align: top;
+        }
+        
+        /* Profile Photo from RAG logic */
+        .profile-photo {
+            width: 150px;
+            height: 150px;
+            border-radius: 50%;
+            object-fit: cover;
+            margin: 0 auto 20px auto;
+            display: block;
+            border: 4px solid #fff;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            font-size: 28pt;
+            font-weight: 700;
+            color: #2c3e50;
+            margin-top: 0;
+            margin-bottom: 5px;
+            line-height: 1.1;
+        }
+        .role-title {
+            font-size: 14pt;
+            color: #3498db;
+            margin-bottom: 20px;
+            font-weight: 600;
+        }
+
+        .section-title {
+            font-size: 12pt;
+            font-weight: 700;
+            text-transform: uppercase;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 5px;
+            margin-top: 25px;
+            margin-bottom: 15px;
+            color: #2c3e50;
+            letter-spacing: 1px;
+        }
+        .sidebar .section-title {
+            border-bottom-color: #bdc3c7;
+            color: #34495e;
+        }
+
+        .contact-item {
+            margin-bottom: 8px;
+            font-size: 9.5pt;
+            word-wrap: break-word;
+        }
+        .contact-item strong { display: block; font-size: 8pt; color: #7f8c8d; }
+
+        .job-entry { margin-bottom: 20px; }
+        .job-title { font-weight: 700; font-size: 11pt; color: #2c3e50; }
+        .job-company { font-weight: 600; color: #34495e; font-size: 10.5pt; }
+        .job-date { color: #7f8c8d; font-size: 9.5pt; margin-bottom: 5px; display: block;}
+        
+        ul { margin: 5px 0 0 15px; padding: 0; }
+        li { margin-bottom: 4px; font-size: 10pt; line-height: 1.4; }
+
+        .tag {
+            display: inline-block;
+            background: #fff;
+            border: 1px solid #dcdcdc;
+            padding: 3px 8px;
+            border-radius: 12px;
+            margin-right: 5px;
+            margin-bottom: 5px;
+            font-size: 9pt;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <!-- RAG: Show photo if strictly required or if user has one and it's not forbidden -->
+            {% if (rag_data.knowledge_base.ats_optimization.photo_required or user_data.photo_url) and not rag_data.knowledge_base.ats_optimization.photo_forbidden %}
+                <!-- Use placeholder if no URL but required, else user URL -->
+                 <img src="{{ user_data.photo_url or 'https://ui-avatars.com/api/?name=' + user_data.full_name }}" class="profile-photo" alt="Profile">
+            {% endif %}
+
+            <div class="section-title">Contact</div>
+            {% if user_data.contact.email %}
+            <div class="contact-item">
+                <strong>Email</strong>
+                {{ user_data.contact.email }}
+            </div>
+            {% endif %}
+            {% if user_data.contact.phone %}
+            <div class="contact-item">
+                <strong>Phone</strong>
+                {{ user_data.contact.phone }}
+            </div>
+            {% endif %}
+            {% if user_data.contact.city %}
+            <div class="contact-item">
+                <strong>Location</strong>
+                {{ user_data.contact.city }}
+            </div>
+            {% endif %}
+            {% if user_data.contact.linkedin %}
+            <div class="contact-item">
+                <strong>LinkedIn</strong>
+                Available
+            </div>
+            {% endif %}
+
+            {% if user_data.links %}
+            {% for link in user_data.links %}
+            <div class="contact-item">
+                <strong>{{ link.label }}</strong>
+                <a href="{{ link.url }}" style="color: #3498db; text-decoration: none;">{{ link.url|replace('https://', '')|replace('http://', '')|truncate(25) }}</a>
+            </div>
+            {% endfor %}
+            {% endif %}
+
+            <!-- Education (Sidebar Style) -->
+            {% if user_data.educations %}
+            <div class="section-title">{{ rag_data.language_template.section_headings.education }}</div>
+            {% for edu in user_data.educations %}
+            <div style="margin-bottom: 15px;">
+                <div style="font-weight: bold; font-size: 10pt;">{{ edu.degree }}</div>
+                <div style="font-size: 9.5pt;">{{ edu.institution }}</div>
+                <div style="font-size: 9pt; color: #666;">{{ edu.graduation_date }}</div>
+            </div>
+            {% endfor %}
+            {% endif %}
+
+             <!-- Skills (Sidebar Style) -->
+            {% if user_data.skills %}
+            <div class="section-title">{{ rag_data.language_template.section_headings.skills }}</div>
+            <div>
+                {% for skill in user_data.skills %}
+                <span class="tag">{{ skill }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+             <!-- Languages -->
+            {% if user_data.languages %}
+            <div class="section-title">Languages</div>
+            {% for lang in user_data.languages %}
+            <div style="margin-bottom: 4px; font-size: 10pt;">
+                • {{ lang.name if lang.name is defined else lang }}
+                {% if lang.level %} ({{ lang.level }}){% endif %}
+            </div>
+            {% endfor %}
+            {% endif %}
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <h1>{{ user_data.full_name }}</h1>
+            <div class="role-title">{{ user_data.title or job_role or 'Professional' }}</div>
+
+            {% if user_data.professional_summary or user_data.summary_text or user_data.summary %}
+            <div style="margin-bottom: 30px;">
+                <p style="font-size: 10.5pt; line-height: 1.6;">{{ user_data.professional_summary or user_data.summary_text or user_data.summary }}</p>
+            </div>
+            {% endif %}
+
+            {% if user_data.work_experiences %}
+            <div class="section-title">{{ rag_data.language_template.section_headings.experience }}</div>
+            {% for job in user_data.work_experiences %}
+            <div class="job-entry">
+                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 2px;">
+                    <tr>
+                        <td width="70%" align="left" style="vertical-align: top;" class="job-title">
+                            {{ job.job_title }}
+                        </td>
+                        <td width="30%" align="right" style="vertical-align: top;" class="job-date">
+                            {{ job.start_date }} - {{ job.end_date if job.end_date else 'Present' }}
+                        </td>
+                    </tr>
+                </table>
+                <div class="job-company">{{ job.company }} {{ ' - ' + job.location if job.location else '' }}</div>
+                
+                {% if job.achievements %}
+                <ul>
+                    {% for bullet in job.achievements %}
+                    <li>{{ bullet }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+            {% endfor %}
+            {% endif %}
+
+            {% if user_data.projects %}
+            <div class="section-title">PROJECTS</div>
+            {% for proj in user_data.projects %}
+            <div class="job-entry">
+                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 2px;">
+                    <tr>
+                        <td width="70%" align="left" style="vertical-align: top;" class="job-title">
+                            {{ proj.title }}
+                        </td>
+                        <td width="30%" align="right" style="vertical-align: top;" class="job-date">
+                            {{ proj.start_date }} - {{ proj.end_date if proj.end_date else 'Present' }}
+                        </td>
+                    </tr>
+                </table>
+                <div class="job-company">{{ proj.role }}{{ ' | ' + proj.link if proj.link else '' }}</div>
+                
+                <div style="font-size: 10pt; margin-top: 5px;">{{ proj.description }}</div>
+                {% if proj.technologies %}
+                <div style="font-size: 9pt; color: #666; margin-top: 3px;">
+                    <strong>Stack:</strong> {{ proj.technologies|join(', ') }}
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

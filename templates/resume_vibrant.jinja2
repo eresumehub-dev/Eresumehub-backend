@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="{{ rag_data.language_code }}">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ user_data.full_name }} - Resume</title>
+    <style>
+        @page { size: A4; margin: 0; }
+        body {
+            font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            color: #1e293b;
+            background-color: #ffffff;
+            line-height: 1.5;
+        }
+        .resume-container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 40px;
+        }
+        
+        /* Header Section */
+        .resume-header {
+            display: table;
+            width: 100%;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #f1f5f9;
+            padding-bottom: 20px;
+        }
+        .header-left {
+            display: table-cell;
+            vertical-align: middle;
+            width: 75%;
+        }
+        .header-right {
+            display: table-cell;
+            vertical-align: middle;
+            text-align: right;
+            width: 25%;
+        }
+        
+        h1 {
+            font-size: 32pt;
+            font-weight: 800;
+            margin: 0;
+            color: #0f172a;
+            letter-spacing: -1px;
+        }
+        h2 {
+            font-size: 16pt;
+            font-weight: 600;
+            color: #3b82f6;
+            margin: 5px 0 15px 0;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .contact-info {
+            font-size: 10pt;
+            color: #64748b;
+        }
+        .profile-photo {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 4px solid #f1f5f9;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+        }
+
+        /* Section Styling */
+        section {
+            margin-bottom: 25px;
+        }
+        h3 {
+            font-size: 12pt;
+            font-weight: 700;
+            color: #0f172a;
+            border-left: 4px solid #3b82f6;
+            padding-left: 12px;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* About Section */
+        .about p {
+            font-size: 10.5pt;
+            color: #334155;
+            text-align: justify;
+        }
+
+        /* Education & Experience Items */
+        .item {
+            margin-bottom: 15px;
+        }
+        .item-header {
+            display: table;
+            width: 100%;
+            margin-bottom: 4px;
+        }
+        .item-title {
+            display: table-cell;
+            font-weight: 700;
+            font-size: 12pt;
+            color: #0f172a;
+        }
+        .item-date {
+            display: table-cell;
+            text-align: right;
+            font-size: 10pt;
+            color: #64748b;
+            font-weight: 500;
+        }
+        .item-subtitle {
+            font-size: 11pt;
+            color: #3b82f6;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        /* List Styling */
+        ul {
+            margin: 8px 0 0 20px;
+            padding: 0;
+        }
+        li {
+            font-size: 10.5pt;
+            color: #475569;
+            margin-bottom: 4px;
+        }
+
+        /* Skills Tags */
+        .skills-list p {
+            font-size: 10.5pt;
+            margin-bottom: 8px;
+        }
+        .skills-list strong {
+            color: #0f172a;
+        }
+
+        /* Reference Section */
+        .ref-grid {
+            display: table;
+            width: 100%;
+        }
+        .ref-item {
+            display: table-cell;
+            width: 50%;
+            font-size: 10pt;
+            padding-right: 20px;
+        }
+
+        /* Certifications List */
+        .certs-list {
+            columns: 2;
+            -webkit-columns: 2;
+            -moz-columns: 2;
+        }
+    </style>
+</head>
+<body>
+    <div class="resume-container">
+        <header class="resume-header">
+            <div class="header-left">
+                <h1>{{ user_data.full_name }}</h1>
+                <h2>{{ user_data.title or job_role or 'Professional' }}</h2>
+                <div class="contact-info">
+                    {% if user_data.contact.phone %}📞 {{ user_data.contact.phone }} &nbsp; | &nbsp;{% endif %}
+                    {% if user_data.contact.city %}📍 {{ user_data.contact.city }} &nbsp; | &nbsp;{% endif %}
+                    {% if user_data.contact.email %}✉ {{ user_data.contact.email }}{% endif %}
+                </div>
+            </div>
+            <div class="header-right">
+                {% if (rag_data.knowledge_base.ats_optimization.photo_required or user_data.photo_url) and not rag_data.knowledge_base.ats_optimization.photo_forbidden %}
+                    <img src="{{ user_data.photo_url or 'https://ui-avatars.com/api/?name=' + user_data.full_name }}" alt="Profile Photo" class="profile-photo" />
+                {% endif %}
+            </div>
+        </header>
+
+        {% if user_data.professional_summary or user_data.summary_text or user_data.summary %}
+        <section class="about">
+            <h3>ABOUT ME</h3>
+            <p>{{ user_data.professional_summary or user_data.summary_text or user_data.summary }}</p>
+        </section>
+        {% endif %}
+
+        {% if user_data.educations %}
+        <section class="education">
+            <h3>EDUCATION</h3>
+            {% for edu in user_data.educations %}
+            <div class="item">
+                <div class="item-header">
+                    <span class="item-title">{{ edu.institution }}</span>
+                    <span class="item-date">{{ edu.graduation_date }}</span>
+                </div>
+                <div class="item-subtitle">{{ edu.degree }}</div>
+            </div>
+            {% endfor %}
+        </section>
+        {% endif %}
+
+        {% if user_data.skills %}
+        <section class="skills">
+            <h3>SKILLS</h3>
+            <div class="skills-list">
+                <p>{{ user_data.skills | join(', ') }}</p>
+            </div>
+        </section>
+        {% endif %}
+
+        {% if user_data.work_experiences %}
+        <section class="experience">
+            <h3>WORK EXPERIENCE</h3>
+            {% for job in user_data.work_experiences %}
+            <div class="item">
+                <div class="item-header">
+                    <span class="item-title">{{ job.company }}</span>
+                    <span class="item-date">{{ job.start_date }} – {{ job.end_date if job.end_date else 'Present' }}</span>
+                </div>
+                <div class="item-subtitle">{{ job.job_title }}</div>
+                {% if job.achievements %}
+                <ul>
+                    {% for bullet in job.achievements %}
+                    <li>{{ bullet }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </section>
+        {% endif %}
+
+        {% if user_data.languages %}
+        <section class="languages">
+            <h3>LANGUAGES</h3>
+            {% for lang in user_data.languages %}
+            <p><strong>{{ lang.name if lang.name is defined else lang }}</strong> – {{ lang.level if lang.level is defined else 'Native' }}</p>
+            {% endfor %}
+        </section>
+        {% endif %}
+
+        {% if user_data.references %}
+        <section class="references">
+            <h3>REFERENCE</h3>
+            <div class="ref-grid">
+                {% for ref in user_data.references %}
+                <div class="ref-item">
+                    <strong>{{ ref.name }}</strong> – {{ ref.position }}<br/>
+                    {{ ref.company }}<br/>
+                    {% if ref.phone %}📞 {{ ref.phone }}{% endif %} {% if ref.email %}| &nbsp; ✉ {{ ref.email }}{% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+        {% endif %}
+
+        {% if user_data.certifications %}
+        <section class="certifications">
+            <h3>CERTIFICATIONS</h3>
+            <ul class="certs-list">
+                {% for cert in user_data.certifications %}
+                <li>{{ cert }}</li>
+                {% endfor %}
+            </ul>
+        </section>
+        {% endif %}
+
+    </div>
+</body>
+</html>

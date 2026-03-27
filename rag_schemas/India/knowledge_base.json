@@ -1,0 +1,1230 @@
+{
+  "country": "India",
+  "description": "Comprehensive knowledge base for Indian CV/Resume creation (2025-2026)",
+  "last_updated": "2026",
+  "ats_optimization": {
+    "description": "Critical rules to pass ATS screening - 75% of Indian resumes are rejected by ATS before reaching human recruiters",
+    "rejection_rate": "75%",
+    "ai_screening_adoption": "45% of Indian companies now use AI tools for resume screening",
+    "fonts": [
+      "Arial",
+      "Calibri",
+      "Times New Roman",
+      "Helvetica",
+      "Cambria",
+      "Lato",
+      "Georgia"
+    ],
+    "font_size": "10-12pt for body text, 14-16pt for headings",
+    "file_format": [
+      "DOCX (preferred)",
+      "PDF (check ATS compatibility)"
+    ],
+    "save_format_note": "Use .docx unless employer specifically requests PDF",
+    "layout": {
+      "structure": "Single-column layout only",
+      "columns": "Never use multi-column layouts - ATS cannot parse them",
+      "margins": "1 inch margins on all sides",
+      "whitespace": "Adequate spacing between sections for readability"
+    },
+    "avoid": [
+      "Multi-column layouts",
+      "Tables with data",
+      "Text boxes",
+      "Headers/footers with important information",
+      "Graphics, icons, or images (except photo if required)",
+      "Fancy fonts or script fonts",
+      "Bright or multiple colors",
+      "Embedded images with text",
+      "Creative section names",
+      "Footnotes"
+    ],
+    "must_have": [
+      "Standard section headings (Work Experience, Education, Skills, etc.)",
+      "Keywords from job description naturally incorporated",
+      "Both acronyms and full forms (e.g., 'AI' and 'Artificial Intelligence')",
+      "8-12 relevant keywords throughout resume",
+      "Clear hierarchy with consistent formatting",
+      "Text-based content (no text in images)",
+      "Standard date format (MM/YYYY or Month YYYY)",
+      "Contact information in simple format"
+    ],
+    "keyword_strategy": {
+      "placement": "Incorporate keywords naturally in summary, skills, and experience sections",
+      "density": "8-12 relevant keywords from job description",
+      "variations": "Include both abbreviations and full terms",
+      "examples": [
+        "SEO and Search Engine Optimization",
+        "AI, Artificial Intelligence, Machine Learning, ML",
+        "AWS, Amazon Web Services, Cloud Computing"
+      ],
+      "industry_terms": "Use exact terminology from job posting",
+      "avoid": "Keyword stuffing or irrelevant details"
+    },
+    "popular_ats_india": [
+      "Naukri RMS (most common)",
+      "Zoho Recruit",
+      "BambooHR",
+      "Darwinbox ATS",
+      "CEIPAL TalentHire",
+      "Zappyhire",
+      "HROne",
+      "GreytHR",
+      "Freshservice (Freshworks)",
+      "Keka HR",
+      "iSmartRecruit"
+    ],
+    "compatibility_tips": {
+      "test_tools": [
+        "Jobscan",
+        "Resume Worded",
+        "LinkedIn Resume Builder"
+      ],
+      "check_parsing": "Use ATS checker tools before submission",
+      "readability": "Ensure text is selectable (not in images)",
+      "consistency": "Maintain consistent formatting throughout"
+    }
+  },
+  "cv_structure": {
+    "max_pages": {
+      "freshers": "1 page (strictly for undergrads and new graduates)",
+      "experienced": "2 pages (common for mid to senior-level)",
+      "senior_executive": "3 pages rarely needed, 2 pages preferred"
+    },
+    "order": {
+      "freshers": [
+        "Header (Contact Information)",
+        "Career Objective (2-3 lines)",
+        "Education (near top, emphasized)",
+        "Technical Skills",
+        "Projects (detailed)",
+        "Internships/Experience",
+        "Certifications",
+        "Achievements & Awards",
+        "Languages Known",
+        "Declaration (for government roles)"
+      ],
+      "experienced": [
+        "Header (Contact Information)",
+        "Professional Summary (3-4 lines)",
+        "Work Experience (detailed, reverse chronological)",
+        "Technical Skills",
+        "Education",
+        "Certifications & Training",
+        "Projects (optional)",
+        "Achievements",
+        "Languages Known"
+      ]
+    },
+    "required_languages": [
+      "English"
+    ],
+    "mandatory_sections": {
+      "header": {
+        "required": [
+          "Full Name (prominently displayed)",
+          "Professional Email (firstname.lastname@domain.com format)",
+          "Mobile Number with +91 country code",
+          "Current City and State",
+          "LinkedIn Profile URL (highly recommended)"
+        ],
+        "optional": [
+          "GitHub/Portfolio links (for tech roles)",
+          "Personal website",
+          "Date of Birth (only if employer requires)",
+          "Photo (see guidelines below)"
+        ],
+        "avoid": [
+          "Full address with street details",
+          "Unprofessional email addresses",
+          "Multiple phone numbers"
+        ]
+      },
+      "objective_summary": {
+        "freshers": {
+          "type": "Career Objective",
+          "length": "2-3 lines",
+          "content": "State career goals, key skills, and aspirations",
+          "example": "Seeking a software developer position where I can apply my Python and data analytics skills to build innovative solutions, while contributing to team success and professional growth"
+        },
+        "experienced": {
+          "type": "Professional Summary",
+          "length": "3-4 lines",
+          "content": "Highlight achievements, years of experience, key strengths",
+          "example": "Results-driven marketing manager with 5+ years driving 30% sales growth through data-driven campaigns. Expertise in digital marketing, SEO, and team leadership. Proven track record of managing ₹2Cr+ budgets and delivering ROI-focused strategies"
+        }
+      },
+      "experience": {
+        "format": "Job Title | Company Name | Location | MM/YYYY - MM/YYYY",
+        "bullets": "3-5 achievement-focused bullet points per role",
+        "style": "Start with action verbs, no pronouns",
+        "quantify": "Include numbers, percentages, rupee amounts, team sizes",
+        "focus": "Results and business impact over responsibilities",
+        "examples": [
+          "Led team of 5 to automate process, reducing errors by 40% and saving 200 man-hours monthly",
+          "Increased revenue by 25% through implementation of targeted B2B sales strategy",
+          "Managed portfolio worth ₹10 crore, achieving 95% client retention rate"
+        ]
+      },
+      "education": {
+        "format": "Degree | Institution | Location | Year | CGPA/Percentage",
+        "order": "Reverse chronological (most recent first)",
+        "importance": "Highly emphasized for freshers and new graduates",
+        "include_grades": "Always include if good (7.5+ CGPA or 75%+ percentage)",
+        "school_marks": "Include Class X and XII marks (common in India)",
+        "additional": "Mention honors, ranks, scholarships, relevant coursework",
+        "example": "B.Tech in Computer Science | IIT Delhi | New Delhi | 2024 | CGPA: 8.5/10"
+      },
+      "skills": {
+        "prominence": "Separate dedicated section - highly valued by Indian recruiters",
+        "count": "6-12 skills (prioritize relevance)",
+        "structure": {
+          "technical_first": "List hard skills prominently (programming, tools, software)",
+          "soft_skills_after": "Follow with soft skills (communication, teamwork, leadership)"
+        },
+        "format_options": [
+          "Bulleted list",
+          "Comma-separated",
+          "Grouped by category (Programming Languages, Tools, Frameworks)"
+        ],
+        "examples": [
+          "Technical: Python, Java, AWS, Docker, SQL, React, Machine Learning, Git",
+          "Business: SAP FICO, Tally, QuickBooks, Financial Analysis, Excel, Power BI",
+          "Soft Skills: Leadership, Team Management, Problem Solving, Communication"
+        ]
+      },
+      "projects": {
+        "importance": "Critical for freshers to demonstrate practical skills",
+        "count": "2-3 most relevant projects",
+        "format": "Project Name | Technologies Used | Duration",
+        "description": "2-3 lines explaining objective, approach, and outcome",
+        "quantify": "Include metrics where possible (users, performance improvement, etc.)",
+        "example": "E-commerce Recommendation System | Python, TensorFlow, Flask | Jan 2024 - Apr 2024\nDeveloped ML-based product recommendation engine achieving 85% accuracy. Improved user engagement by 40% through personalized suggestions. Deployed on AWS with scalable architecture."
+      }
+    },
+    "additional_sections": {
+      "certifications": {
+        "value": "Highly valued in Indian job market",
+        "format": "Certification Name | Issuing Organization | Date",
+        "priority": "List industry-recognized certifications (Google, AWS, Microsoft, etc.)",
+        "examples": [
+          "AWS Certified Solutions Architect | Amazon Web Services | Sep 2024",
+          "Google Analytics Certified | Google | Jun 2024",
+          "Certified Scrum Master (CSM) | Scrum Alliance | Mar 2024"
+        ]
+      },
+      "achievements": {
+        "include": [
+          "Awards and recognitions",
+          "Competition wins (hackathons, case studies)",
+          "Publications or patents",
+          "Significant milestones"
+        ],
+        "quantify": "Include context and impact"
+      },
+      "languages": {
+        "format": "Language - Proficiency Level",
+        "value": "Important for multilingual roles and client-facing positions",
+        "specify": "Reading, Writing, Speaking abilities if relevant",
+        "example": "Hindi - Native | English - Professional Proficiency | Tamil - Conversational"
+      }
+    }
+  },
+  "personal_details_biodata": {
+    "modern_practice": {
+      "recommendation": "Omit most personal information for corporate roles",
+      "include_only": "Name, phone, email, city, LinkedIn",
+      "avoid": "Photo, DOB, gender, marital status, religion unless requested",
+      "reason": "Prevent bias and follow global best practices"
+    },
+    "traditional_practice": {
+      "context": "Still common in some sectors and smaller companies",
+      "includes": "Photo, DOB, father's name, marital status, religion, nationality",
+      "declining": "Modern Indian companies moving away from this"
+    },
+    "government_psu_mandatory": {
+      "required_elements": [
+        "Recent passport-size photograph (top-left or top-right)",
+        "Full name",
+        "Date of Birth (DD/MM/YYYY format)",
+        "Father's Name",
+        "Gender",
+        "Category (SC/ST/OBC/EWS/General)",
+        "Marital Status",
+        "Nationality",
+        "Complete Address",
+        "Languages Known",
+        "Two references with contact details",
+        "Declaration with signature and date"
+      ],
+      "declaration_text": "I hereby declare that all the information provided above is true and correct to the best of my knowledge.",
+      "format": "Follow specific format mentioned in government job notification"
+    },
+    "photo_guidelines": {
+      "private_sector": "Generally omit unless role requires (acting, security) or specifically requested",
+      "tech_companies": "Most follow global practice - no photo",
+      "government_jobs": "Mandatory professional photograph",
+      "if_including": {
+        "size": "Small, professional headshot",
+        "position": "Top-left or top-right corner",
+        "quality": "High resolution",
+        "attire": "Formal business wear",
+        "background": "Plain light-colored background"
+      }
+    },
+    "sector_specific": {
+      "IT_tech_startups": "No photo, minimal personal info",
+      "banking_finance": "Photo optional, DOB sometimes expected",
+      "government_psu": "Photo mandatory, complete biodata required",
+      "creative_media": "Photo acceptable, portfolio links important",
+      "consulting": "Professional photo optional, emphasis on achievements"
+    }
+  },
+  "industry_specific_guidelines": {
+    "information_technology": {
+      "emphasis": [
+        "Programming languages and frameworks",
+        "Technologies and tools (AWS, Azure, Docker, Kubernetes)",
+        "Projects with technology stack",
+        "GitHub/Portfolio links",
+        "Relevant certifications (AWS, Microsoft, Oracle, Google)"
+      ],
+      "keywords": [
+        "Agile",
+        "DevOps",
+        "Cloud Computing",
+        "AI/ML",
+        "Data Science",
+        "Full Stack",
+        "Python",
+        "Java",
+        "React",
+        "Node.js",
+        "Microservices"
+      ],
+      "quantify": [
+        "Algorithm efficiency improvements",
+        "Performance optimization metrics",
+        "System uptime percentages",
+        "Code quality metrics",
+        "User base or scale handled"
+      ],
+      "example_bullets": [
+        "Developed RESTful APIs using Node.js serving 100K+ daily requests with 99.9% uptime",
+        "Implemented ML model using Python and TensorFlow achieving 92% accuracy",
+        "Migrated 50+ applications to AWS, reducing infrastructure costs by 35%"
+      ]
+    },
+    "banking_finance_bfsi": {
+      "emphasis": [
+        "Financial qualifications (MBA Finance, CFA, FRM, CA)",
+        "Banking/accounting software (Tally, SAP FICO, Oracle Financials)",
+        "Regulatory knowledge (RBI guidelines, KYC, AML)",
+        "Numerical achievements with rupee amounts"
+      ],
+      "keywords": [
+        "Financial Analysis",
+        "Risk Management",
+        "Portfolio Management",
+        "Credit Analysis",
+        "Compliance",
+        "Audit",
+        "Treasury",
+        "Investment Banking"
+      ],
+      "quantify": [
+        "Portfolio values managed (in crores)",
+        "Cost reductions achieved",
+        "Revenue generated",
+        "Turnaround time improvements",
+        "Client satisfaction scores"
+      ],
+      "soft_skills": [
+        "Attention to detail",
+        "Analytical thinking",
+        "Decision making",
+        "Compliance awareness",
+        "Client relationship management"
+      ],
+      "example_bullets": [
+        "Managed portfolio worth ₹10 crore achieving 18% annual returns",
+        "Reduced loan processing time by 20% through workflow automation",
+        "Ensured 100% compliance with RBI guidelines across 50+ audits"
+      ]
+    },
+    "healthcare_pharma": {
+      "emphasis": [
+        "Medical qualifications and licenses (MBBS, MD, nursing degrees)",
+        "Registrations (MCI/NMC for doctors, state nursing council)",
+        "Clinical experience and procedures",
+        "Research publications and conferences",
+        "Regulatory certifications"
+      ],
+      "keywords": [
+        "Patient Care",
+        "Clinical Protocols",
+        "Healthcare Regulations",
+        "Medical Records",
+        "Diagnostics",
+        "Treatment Planning",
+        "Telemedicine"
+      ],
+      "quantify": [
+        "Patient numbers treated",
+        "Success rates of procedures",
+        "Program outcomes",
+        "Research impact factors"
+      ],
+      "soft_skills": [
+        "Empathy",
+        "Communication",
+        "Decision making under pressure",
+        "Team collaboration",
+        "Patient education"
+      ],
+      "example_bullets": [
+        "Managed care for 500+ patients monthly maintaining 95% satisfaction rating",
+        "Published 3 research papers in peer-reviewed journals with 50+ citations",
+        "Implemented telemedicine program reaching 1000+ rural patients"
+      ]
+    },
+    "engineering_manufacturing": {
+      "emphasis": [
+        "Technical degrees (B.Tech, M.Tech with specialization)",
+        "Core technical skills (CAD software, PLC programming, machinery)",
+        "Design projects and prototypes",
+        "Industry certifications (Six Sigma, AutoCAD, SolidWorks)",
+        "Process improvements and efficiency gains"
+      ],
+      "keywords": [
+        "CAD",
+        "AutoCAD",
+        "SolidWorks",
+        "Quality Assurance",
+        "Lean Manufacturing",
+        "Six Sigma",
+        "Process Optimization",
+        "Production Planning",
+        "Industry 4.0"
+      ],
+      "quantify": [
+        "Efficiency improvements (%)",
+        "Cost reductions achieved",
+        "Waste reduction metrics",
+        "Production capacity increases",
+        "Quality improvement statistics"
+      ],
+      "example_bullets": [
+        "Designed hydraulic system using AutoCAD improving efficiency by 15%",
+        "Implemented Six Sigma methodology reducing defects by 35%",
+        "Optimized production line increasing output by 20% while reducing costs by ₹10L annually"
+      ]
+    },
+    "marketing_sales": {
+      "emphasis": [
+        "Revenue and sales metrics",
+        "Campaign performance data",
+        "Digital marketing tools (Google Analytics, CRM, social media)",
+        "Certifications (Google Ads, HubSpot, Salesforce)",
+        "Client acquisition and retention"
+      ],
+      "keywords": [
+        "Digital Marketing",
+        "SEO",
+        "SEM",
+        "Social Media Marketing",
+        "Lead Generation",
+        "Sales Strategy",
+        "Brand Management",
+        "ROI"
+      ],
+      "quantify": [
+        "Sales revenue generated (₹)",
+        "Growth percentages",
+        "Engagement metrics",
+        "Conversion rates",
+        "Client portfolio size",
+        "Campaign ROI"
+      ],
+      "example_bullets": [
+        "Grew territory sales by 40% managing key accounts worth ₹5 Cr annually",
+        "Launched digital campaign boosting user engagement by 72% and generating 500+ qualified leads",
+        "Increased social media following by 150% and improved conversion rate by 25%"
+      ]
+    },
+    "startups_entrepreneurship": {
+      "emphasis": [
+        "Versatility and cross-functional skills",
+        "Results and scaling metrics",
+        "Fundraising achievements",
+        "Product launches and growth",
+        "Innovation and patents"
+      ],
+      "keywords": [
+        "Startup",
+        "Scale-up",
+        "Growth Hacking",
+        "MVP",
+        "Product Development",
+        "Fundraising",
+        "Agile",
+        "Cross-functional",
+        "Innovation"
+      ],
+      "quantify": [
+        "Funding raised (₹ or $ amounts)",
+        "User base growth",
+        "Revenue scaling (ARR, MRR)",
+        "Team size managed",
+        "Market penetration"
+      ],
+      "example_bullets": [
+        "Founded startup and raised ₹50L seed funding from angel investors",
+        "Scaled user base from 0 to 10,000 in 12 months with 30% MoM growth",
+        "Led product development resulting in ₹2M ARR within first year"
+      ]
+    },
+    "consulting_strategy": {
+      "emphasis": [
+        "Problem-solving and analytical skills",
+        "Case competitions and frameworks",
+        "Academic achievements (IIT/IIM ranks)",
+        "Client projects and impact",
+        "Business acumen"
+      ],
+      "keywords": [
+        "Strategy",
+        "Business Analysis",
+        "Problem Solving",
+        "Stakeholder Management",
+        "Data-driven",
+        "Consulting Frameworks",
+        "Change Management"
+      ],
+      "quantify": [
+        "Client impact (revenue, cost savings)",
+        "Project scope and complexity",
+        "Team collaboration metrics",
+        "Business outcomes"
+      ],
+      "example_bullets": [
+        "Led consulting project for Fortune 500 client resulting in 15% cost reduction (₹50Cr savings)",
+        "Analyzed market entry strategy for fintech startup entering 3 new markets",
+        "Won national case competition competing against 200+ teams from top B-schools"
+      ]
+    },
+    "education_research": {
+      "emphasis": [
+        "Academic degrees with specialization",
+        "Publications in peer-reviewed journals",
+        "Conferences and presentations",
+        "Research grants and funding",
+        "Teaching experience and subjects"
+      ],
+      "format": "Can be 2-3 pages with publications list",
+      "keywords": [
+        "Research",
+        "Publications",
+        "Grants",
+        "Teaching",
+        "Curriculum Development",
+        "Academic Excellence",
+        "Peer Review",
+        "Conference Presentations"
+      ],
+      "sections": [
+        "Academic Appointments",
+        "Research Interests",
+        "Publications",
+        "Conferences",
+        "Grants and Funding",
+        "Teaching Experience"
+      ],
+      "example_bullets": [
+        "Published 8 research papers in Q1 journals with cumulative impact factor of 25+",
+        "Secured ₹15L research grant from SERB for AI in healthcare project",
+        "Taught Data Structures and Algorithms to 200+ undergraduate students with 95% pass rate"
+      ]
+    }
+  },
+  "modern_design_trends_2026": {
+    "predominant_style": "Clean, professional, minimalist layouts",
+    "visual_principles": {
+      "layout": "Single or two-column with clear hierarchy",
+      "whitespace": "Generous spacing for readability",
+      "colors": "Conservative - navy, dark green, dark gray, maroon as accent only",
+      "background": "White or off-white (no colored backgrounds)",
+      "graphics": "Avoid for corporate roles; acceptable only in creative fields"
+    },
+    "typography": {
+      "body_fonts": "Sans-serif (Arial, Calibri, Lato) for body text",
+      "heading_fonts": "Same font family, larger size or bold weight",
+      "sizes": "10-12pt body, 14-16pt headings",
+      "consistency": "One font family throughout with bold/italic for emphasis",
+      "avoid": "Script fonts, novelty fonts, multiple font families"
+    },
+    "color_usage": {
+      "approach": "Minimal and professional",
+      "accent_colors": [
+        "Dark blue",
+        "Navy",
+        "Dark green",
+        "Maroon",
+        "Dark gray"
+      ],
+      "usage": "Headers, section dividers, or subtle highlights only",
+      "primary_text": "Black text on white/off-white background",
+      "avoid": "Bright colors, multiple colors, full-color backgrounds",
+      "monochrome": "Most Indian recruiters expect mostly black-and-white CVs"
+    },
+    "layout_styles": {
+      "traditional": {
+        "description": "Formal, single-column, no photo, plain text",
+        "preferred_by": "Large firms, banks, manufacturing, professional services",
+        "ats_friendly": "Highly compatible"
+      },
+      "modern": {
+        "description": "Clean design with optional headshot, stylized sections, subtle color",
+        "preferred_by": "Startups, tech companies, creative agencies",
+        "ats_friendly": "Must ensure no complex graphics or embedded text",
+        "elements": "Sidebar possible if ATS-friendly, bold section headers, subtle dividers"
+      },
+      "creative": {
+        "description": "Infographic elements, visual hierarchy, designer templates",
+        "preferred_by": "Design, media, advertising roles only",
+        "ats_friendly": "Often problematic - use with caution",
+        "recommendation": "Provide traditional version as backup"
+      }
+    },
+    "template_recommendations": {
+      "tools": [
+        "Canva (India-specific templates)",
+        "Novoresume",
+        "Enhancv",
+        "Zety"
+      ],
+      "characteristics": "One-column structure, distinct headers, readable fonts",
+      "avoid": "Overly decorative templates with graphics and icons"
+    },
+    "ats_vs_visual": {
+      "priority": "ATS compatibility over visual flair for corporate roles",
+      "balance": "Subtle modern touches while maintaining ATS readability",
+      "test": "Always test with ATS checker before submission"
+    }
+  },
+  "top_skills_2025_2026": {
+    "hard_skills": {
+      "technology": [
+        "Artificial Intelligence and Machine Learning",
+        "Generative AI and Prompt Engineering",
+        "Data Science and Big Data Analytics",
+        "Cloud Computing (AWS, Azure, GCP)",
+        "Cybersecurity",
+        "DevOps and Automation (Docker, Kubernetes)",
+        "Full Stack Development (MERN, MEAN)",
+        "Blockchain Development",
+        "IoT and Embedded Systems",
+        "Python Programming",
+        "Data Engineering"
+      ],
+      "business": [
+        "Digital Marketing and SEO",
+        "Google Analytics and Marketing Analytics",
+        "CRM (Salesforce, HubSpot)",
+        "Project Management (Agile, Scrum)",
+        "Financial Analysis and Modeling",
+        "SAP and ERP Systems",
+        "Power BI and Tableau",
+        "Excel (Advanced)",
+        "RPA (Robotic Process Automation)"
+      ],
+      "industry_specific": [
+        "Healthcare: Clinical Skills, Telemedicine, Healthcare Analytics",
+        "Finance: Risk Management, Compliance, Financial Modeling",
+        "Manufacturing: Six Sigma, Lean, Industry 4.0",
+        "Pharma: Regulatory Affairs, Clinical Research"
+      ]
+    },
+    "soft_skills": {
+      "highest_priority": [
+        "Communication Skills (verbal and written)",
+        "Teamwork and Collaboration",
+        "Problem Solving and Critical Thinking",
+        "Adaptability and Flexibility",
+        "Leadership and Team Management",
+        "Time Management",
+        "Creativity and Innovation",
+        "Emotional Intelligence",
+        "Decision Making",
+        "Continuous Learning Mindset"
+      ],
+      "industry_value": {
+        "technology": "Communication (38%), Technical Expertise (34%), AI capabilities",
+        "sales": "Continuous Learning (49%), Communication (43%), Interpersonal (36%)",
+        "hr": "Communication (38%), Adaptability (37%), Analytical Thinking (34%)",
+        "finance": "Analytical Thinking (37%), Technical Expertise (36%), Communication (32%)"
+      },
+      "demonstration": "Show through achievements, not just listing - e.g., 'Led cross-functional team of 12' shows leadership"
+    },
+    "emerging_skills_2026": {
+      "trending": [
+        "Generative AI and ChatGPT/LLM Integration",
+        "Prompt Engineering",
+        "IoT Solutions Architecture (9-34 lakhs salary)",
+        "Sustainability and Green Technology",
+        "Digital Literacy and Remote Collaboration",
+        "Data Privacy and GDPR Compliance",
+        "Change Management",
+        "Resilience and Stress Management"
+      ],
+      "recommendation": "List certifications or courses in emerging areas with specific project examples"
+    },
+    "salary_ranges_2026": {
+      "AI_ML_architect": "21-44 lakhs per annum",
+      "cloud_computing": "8-25 lakhs per annum",
+      "data_science": "7-15 lakhs per annum",
+      "cybersecurity": "7-14 lakhs per annum",
+      "devops": "5-12 lakhs per annum",
+      "full_stack_development": "5-10 lakhs per annum",
+      "iot_solutions": "9-34 lakhs per annum"
+    }
+  },
+  "language_tone_phrasing": {
+    "professional_tone": {
+      "style": "Formal and professional throughout",
+      "voice": "Third person (no 'I', 'me', or 'my')",
+      "sentence_structure": "Concise, action-focused statements",
+      "tense": "Past tense for previous roles, present tense for current role"
+    },
+    "indian_english_conventions": {
+      "spelling": "Use British spellings common in Indian English",
+      "examples": {
+        "british_indian": [
+          "analysed",
+          "optimised",
+          "organised",
+          "specialised",
+          "recognised"
+        ],
+        "not_american": [
+          "analyzed",
+          "optimized",
+          "organized",
+          "specialized",
+          "recognized"
+        ]
+      },
+      "vocabulary": "Formal vocabulary appropriate for professional context",
+      "idioms": "Avoid overly American idioms unless applying to American MNC"
+    },
+    "action_verb_usage": {
+      "rule": "Start every bullet point with strong action verb",
+      "categories": {
+        "achievement": [
+          "Achieved",
+          "Exceeded",
+          "Surpassed",
+          "Attained",
+          "Amplified"
+        ],
+        "leadership": [
+          "Led",
+          "Directed",
+          "Supervised",
+          "Managed",
+          "Coordinated",
+          "Spearheaded"
+        ],
+        "development": [
+          "Developed",
+          "Created",
+          "Built",
+          "Designed",
+          "Engineered",
+          "Implemented"
+        ],
+        "improvement": [
+          "Optimized",
+          "Streamlined",
+          "Enhanced",
+          "Improved",
+          "Upgraded"
+        ],
+        "analysis": [
+          "Analyzed",
+          "Evaluated",
+          "Assessed",
+          "Researched",
+          "Investigated"
+        ],
+        "collaboration": [
+          "Collaborated",
+          "Partnered",
+          "Facilitated",
+          "Coordinated"
+        ],
+        "technical": [
+          "Automated",
+          "Deployed",
+          "Configured",
+          "Integrated",
+          "Programmed"
+        ]
+      },
+      "context_specific": {
+        "IT": [
+          "Deployed",
+          "Debugged",
+          "Architected",
+          "Migrated",
+          "Containerized"
+        ],
+        "finance": [
+          "Audited",
+          "Reconciled",
+          "Forecasted",
+          "Budgeted",
+          "Analyzed"
+        ],
+        "sales": [
+          "Negotiated",
+          "Closed",
+          "Prospected",
+          "Converted",
+          "Upsold"
+        ],
+        "HR": [
+          "Recruited",
+          "Onboarded",
+          "Trained",
+          "Mentored",
+          "Evaluated"
+        ]
+      }
+    },
+    "phrases_to_avoid": {
+      "vague": [
+        "Worked on",
+        "Responsible for",
+        "Involved in",
+        "Helped with",
+        "Participated in"
+      ],
+      "replace_with": [
+        "Developed",
+        "Managed",
+        "Led",
+        "Implemented",
+        "Created"
+      ],
+      "cliches": [
+        "Hardworking",
+        "Team player",
+        "Go-getter",
+        "Think outside the box"
+      ],
+      "weak": [
+        "Assisted in",
+        "Contributed to",
+        "Was part of"
+      ],
+      "pronouns": [
+        "I",
+        "We",
+        "Me",
+        "My",
+        "Our"
+      ]
+    },
+    "quantification_importance": {
+      "rule": "Always quantify achievements with specific metrics",
+      "metrics_to_include": [
+        "Percentages (%)",
+        "Rupee amounts (₹)",
+        "Time periods (months, years)",
+        "Team sizes (number of people)",
+        "User numbers or scale",
+        "Revenue or cost impact",
+        "Efficiency gains"
+      ],
+      "examples": [
+        "Weak: Improved system performance",
+        "Strong: Improved system performance by 35% reducing response time from 5s to 3s",
+        "Weak: Managed a team",
+        "Strong: Led cross-functional team of 12 members across 3 departments",
+        "Weak: Increased sales",
+        "Strong: Increased regional sales by 40% generating ₹5 Cr additional revenue"
+      ]
+    },
+    "clarity_and_brevity": {
+      "sentence_length": "Keep bullet points concise - 1-2 lines maximum",
+      "structure": "Use parallel structure for all bullets in a section",
+      "avoid": "Paragraphs of text - use bullet points throughout",
+      "focus": "One clear achievement or responsibility per bullet",
+      "readability": "Easy to scan and understand in 6-10 seconds per section"
+    },
+    "bilingual_considerations": {
+      "english_proficiency": "All resumes should be in professional English",
+      "language_section": "List Hindi, English, and regional languages separately",
+      "client_facing_roles": "Emphasize multilingual ability if relevant to role",
+      "format": "Language Name - Proficiency Level (Native/Fluent/Professional/Conversational)",
+      "value": "Bilingual skills increasingly important for customer-facing and regional roles"
+    }
+  },
+  "common_mistakes_red_flags": {
+    "critical_errors": [
+      "Spelling and grammatical mistakes (recruiters very strict)",
+      "Inconsistent date formats",
+      "Unexplained employment gaps",
+      "Unprofessional email addresses (use firstname.lastname@domain.com)",
+      "Generic, untailored applications",
+      "Lying about experience, education, or skills (verification is common)",
+      "Vague claims without supporting evidence",
+      "Too long (exceeding 2 pages for experienced, 1 page for freshers)",
+      "Poor formatting or difficult to read",
+      "Missing contact information or broken LinkedIn links"
+    ],
+    "content_mistakes": [
+      "Listing duties instead of achievements",
+      "No quantifiable results",
+      "Irrelevant information or hobbies",
+      "Too much personal information (when not required)",
+      "Outdated or irrelevant skills",
+      "No keywords from job description",
+      "Using 'I', 'me', 'my' throughout",
+      "Passive voice instead of active",
+      "Salary information included"
+    ],
+    "formatting_errors": [
+      "Multiple fonts and colors",
+      "Inconsistent spacing",
+      "Tables that confuse ATS",
+      "Images with embedded text",
+      "Complex graphics or charts",
+      "Tiny fonts (below 10pt)",
+      "Margins too narrow (less than 0.5 inch)",
+      "No clear section headings"
+    ],
+    "verification_concerns": {
+      "background_checks": "Indian companies increasingly verify education and employment",
+      "education_fraud": "Never lie about degrees, universities, or grades",
+      "employment_dates": "Ensure dates match with background check",
+      "skills_verification": "Only list skills you can demonstrate in interviews",
+      "references": "Inform references before listing them"
+    }
+  },
+  "success_patterns": {
+    "top_company_hires": {
+      "TCS": [
+        "Emphasized programming languages and cloud technologies",
+        "Quantified project impact with specific metrics",
+        "Listed TCS-relevant certifications",
+        "Clean, ATS-friendly format with strong technical section"
+      ],
+      "Infosys": [
+        "Business-oriented language showing value creation",
+        "Process improvement examples with data",
+        "Client interaction experience highlighted",
+        "Continuous learning demonstrated through certifications"
+      ],
+      "Wipro": [
+        "Versatile technical skills across domains",
+        "Problem-solving examples with outcomes",
+        "Team collaboration and leadership",
+        "Industry-specific knowledge relevant to role"
+      ],
+      "HDFC_Bank": [
+        "Financial qualifications prominently displayed",
+        "Regulatory compliance knowledge",
+        "Customer service metrics and achievements",
+        "Risk management experience"
+      ],
+      "Flipkart": [
+        "E-commerce relevant projects",
+        "Scalability and performance metrics",
+        "User-centric design thinking",
+        "Startup/fast-paced environment experience"
+      ]
+    },
+    "common_success_elements": {
+      "tailoring": "Customized to match job description keywords and requirements",
+      "quantification": "Every achievement backed by numbers and data",
+      "relevance": "Focused on what company needs, omitting irrelevant details",
+      "clarity": "Clean format with bullet points and consistent structure",
+      "conciseness": "No fluff - only value-adding information",
+      "keywords": "Natural incorporation of industry and role-specific terms",
+      "achievement_focus": "Results and impact over responsibilities",
+      "professional_presentation": "Error-free with polished language"
+    }
+  },
+  "complementary_documents": {
+    "cover_letter": {
+      "importance": "Highly encouraged for professional roles in India",
+      "length": "3-4 short paragraphs (half page to one page)",
+      "structure": [
+        "Opening: Position and how you found it",
+        "Body 1: Why you're a great fit (match skills to requirements)",
+        "Body 2: What you bring (key achievements and value)",
+        "Closing: Enthusiasm and call to action"
+      ],
+      "use_cases": [
+        "Explain career gaps or transitions",
+        "Address relocation or geographical considerations",
+        "Show genuine interest in company",
+        "Expand on key achievements from resume"
+      ],
+      "tone": "Professional, enthusiastic, personalized",
+      "customization": "Always tailor to specific company and role"
+    },
+    "linkedin_profile": {
+      "alignment": "Must match resume in titles, dates, and achievements",
+      "photo": "Professional photograph required on LinkedIn (unlike resume)",
+      "headline": "More than job title - include key skills and value proposition",
+      "summary": "Expanded version of resume summary (150-300 words)",
+      "experience": "Mirror resume format with bullet points",
+      "endorsements": "Seek endorsements for key skills from colleagues",
+      "recommendations": "Request recommendations from managers and clients",
+      "importance": "Indian recruiters expect LinkedIn profile and check for consistency"
+    },
+    "portfolio_websites": {
+      "relevance": {
+        "tech": "GitHub repos, personal website, project demos",
+        "design": "Behance, Dribbble, personal portfolio site",
+        "writing": "Medium blog, published articles, content samples",
+        "marketing": "Campaign case studies, analytics dashboards",
+        "architecture": "Project portfolio with CAD drawings"
+      },
+      "format": "Include URL in resume header",
+      "curation": "Show 2-3 best, most relevant examples only",
+      "qr_codes": "QR codes linking to portfolio gaining popularity (optional)"
+    },
+    "video_resume": {
+      "status": "Still niche in India - mainly creative/media sectors",
+      "length": "Under 2 minutes if used",
+      "content": "Professional introduction, communication skills showcase",
+      "usage": "Supplement only, never replace formal resume",
+      "check_first": "Verify employer accepts video submissions"
+    },
+    "certifications": {
+      "documentation": "Keep certificates ready for verification",
+      "validity": "Mention expiry dates for time-bound certifications",
+      "digital_badges": "Include links to verifiable digital credentials (Credly, Coursera)",
+      "priority": "List only relevant, recent, recognized certifications"
+    }
+  },
+  "government_institutional_insights": {
+    "national_career_service": {
+      "portal": "NCS.gov.in - Government job portal",
+      "resources": [
+        "Skill assessment tools",
+        "Resume building guidance",
+        "Career counseling",
+        "Regional job market insights"
+      ],
+      "registration": "Free registration for job seekers",
+      "alignment": "Government scheme integration for skill development roles"
+    },
+    "skill_india_initiatives": {
+      "PMKVY": {
+        "name": "Pradhan Mantri Kaushal Vikas Yojana",
+        "benefit": "Industry-recognized skill certifications",
+        "resume_value": "Enhances credibility, especially for freshers",
+        "placement_support": "90-day placement assistance post-certification"
+      },
+      "NSDC": {
+        "name": "National Skill Development Corporation",
+        "certifications": "Recognized across retail, hospitality, healthcare sectors",
+        "resume_addition": "List NSDC certifications with NSQF level",
+        "credibility": "Government backing adds weight to profile"
+      }
+    },
+    "government_job_requirements": {
+      "biodata_format": "Strict format specified in job notification",
+      "mandatory_elements": [
+        "Recent passport-size photo with signature",
+        "Complete personal details including category",
+        "Educational qualifications with all mark sheets",
+        "Two references with full contact details",
+        "Declaration with signature and date"
+      ],
+      "submission": "Often physical submission or specific online portals",
+      "verification": "Strict document verification process"
+    }
+  },
+  "recruiter_preferences_2026": {
+    "hiring_manager_priorities": {
+      "primary_factors": [
+        "Skills match with job requirements (highest priority)",
+        "Quantified achievements and business impact",
+        "Clear career progression and growth",
+        "Cultural fit and team collaboration",
+        "Communication skills (37-38% across industries)",
+        "Continuous learning mindset",
+        "Adaptability and problem-solving"
+      ],
+      "resume_evaluation_time": "6-10 seconds for initial scan",
+      "key_sections_checked": [
+        "Summary/Objective for quick overview",
+        "Skills section for technical match",
+        "Recent work experience for relevance",
+        "Education for qualifications"
+      ]
+    },
+    "ats_human_balance": {
+      "ats_screening": "75% of resumes filtered by ATS before human review",
+      "human_review": "Focuses on achievements, cultural fit, communication",
+      "optimization_strategy": "Pass ATS first, then impress humans with results",
+      "keyword_density": "Natural incorporation, not stuffing"
+    },
+    "rejection_reasons": {
+      "primary": [
+        "Skills mismatch (most common)",
+        "Poor ATS compatibility",
+        "Vague or generic content",
+        "Grammatical errors and typos",
+        "Unexplained gaps",
+        "Lack of quantification",
+        "Too long or poorly formatted",
+        "Missing key qualifications"
+      ],
+      "secondary": [
+        "Unprofessional email or LinkedIn",
+        "Salary expectations mentioned",
+        "Negative language about previous employers",
+        "Irrelevant information"
+      ]
+    },
+    "cultural_considerations": {
+      "indian_business_context": "Understanding of Indian market and business environment valued",
+      "hierarchy_awareness": "Respect for organizational structure and reporting lines",
+      "long_term_potential": "Companies look for commitment and growth trajectory",
+      "family_values": "Stability and loyalty still valued in traditional sectors"
+    }
+  },
+  "job_market_statistics_2026": {
+    "employment_landscape": {
+      "total_job_openings": "3.2 million+ across sectors",
+      "growth_sectors": [
+        "IT and Technology (highest demand)",
+        "E-commerce and Digital",
+        "Healthcare and Pharmaceuticals",
+        "BFSI (Banking, Financial Services, Insurance)",
+        "Renewable Energy",
+        "EdTech",
+        "FinTech"
+      ],
+      "skill_shortage_areas": [
+        "AI/ML specialists (21-44 lakh salary range)",
+        "Cloud architects (8-25 lakh range)",
+        "Cybersecurity experts (7-14 lakh range)",
+        "Data scientists (7-15 lakh range)",
+        "Full-stack developers (5-10 lakh range)"
+      ]
+    },
+    "hiring_trends": {
+      "skill_based_hiring": "70% of employers prioritize skills over degrees",
+      "remote_work": "Hybrid and remote options normalized post-pandemic",
+      "ai_recruitment": "45% companies use AI for resume screening",
+      "diversity_focus": "Increasing emphasis on diverse hiring",
+      "gig_economy": "Growing acceptance of freelance and contract work"
+    },
+    "future_outlook": {
+      "skill_evolution": "70% of job skills expected to change by 2030",
+      "continuous_learning": "Lifelong learning and upskilling critical",
+      "technology_integration": "AI and automation reshaping all industries",
+      "emphasis": "Showcase both current competencies and learning agility"
+    }
+  },
+  "checklist": {
+    "pre_application": {
+      "ats_optimization": [
+        "✓ Saved in .docx or ATS-compatible PDF format",
+        "✓ Single-column layout with standard fonts (Arial, Calibri, Times New Roman)",
+        "✓ 8-12 relevant keywords from job description incorporated naturally",
+        "✓ Standard section headers used consistently",
+        "✓ No tables, graphics, or complex formatting",
+        "✓ All text is selectable (not embedded in images)"
+      ],
+      "content_optimization": [
+        "✓ All bullet points start with action verbs",
+        "✓ Quantified achievements with specific numbers and percentages",
+        "✓ Industry-specific technical skills highlighted",
+        "✓ Complete contact information with LinkedIn profile",
+        "✓ Tailored to specific job description",
+        "✓ No spelling or grammatical errors"
+      ],
+      "cultural_adaptation": [
+        "✓ Photo included/excluded based on sector (exclude for tech/corporate, include for government)",
+        "✓ Regional language skills mentioned for relevant roles",
+        "✓ Educational qualifications detailed with CGPA/percentage",
+        "✓ Location preferences and availability specified",
+        "✓ Date format consistent (MM/YYYY or Month YYYY)"
+      ]
+    },
+    "quality_assurance": {
+      "technical_review": [
+        "✓ ATS compatibility tested using online tools (Jobscan, Resume Worded)",
+        "✓ Grammar and spelling verified through Grammarly or similar",
+        "✓ Formatting consistent across all sections",
+        "✓ Print test completed for readability",
+        "✓ PDF renders correctly on different devices"
+      ],
+      "content_validation": [
+        "✓ All achievement claims verifiable and accurate",
+        "✓ Dates and employment history consistent with LinkedIn",
+        "✓ References contacted and permission obtained",
+        "✓ Certifications current and relevant",
+        "✓ No false or exaggerated claims"
+      ]
+    },
+    "application_strategy": {
+      "customization": [
+        "✓ Job description analyzed for key requirements",
+        "✓ Resume tailored with relevant keywords for each application",
+        "✓ Cover letter personalized for specific company",
+        "✓ LinkedIn profile aligned with resume",
+        "✓ Portfolio/GitHub links updated and accessible"
+      ],
+      "follow_up": [
+        "✓ Digital portfolio accessible and updated",
+        "✓ Interview preparation aligned with resume claims",
+        "✓ References prepared for potential contact",
+        "✓ Salary expectations researched and realistic",
+        "✓ Company research completed for cultural fit"
+      ]
+    }
+  },
+  "tools_and_resources": {
+    "ats_checkers": [
+      "Jobscan - ATS compatibility and keyword optimization",
+      "Resume Worded - AI-powered resume review",
+      "LinkedIn Resume Builder - Free basic ATS check",
+      "Zety Resume Checker - Formatting and content analysis"
+    ],
+    "resume_builders": [
+      "Canva - India-specific templates",
+      "Novoresume - ATS-friendly modern templates",
+      "Zety - Guided resume creation",
+      "Resume.io - Professional templates"
+    ],
+    "learning_platforms": [
+      "Naukri Learning - Indian job market focused",
+      "Coursera - International certifications",
+      "UpGrad - Indian higher education and upskilling",
+      "LinkedIn Learning - Professional skill development",
+      "Udemy - Affordable skill courses"
+    ],
+    "job_portals": [
+      "Naukri.com - Largest Indian job portal",
+      "LinkedIn Jobs - Professional networking and jobs",
+      "Indeed India - Global with India focus",
+      "Monster India - Established portal",
+      "Shine.com - Career growth focused",
+      "Instahyre - Tech and startup jobs",
+      "AngelList - Startup ecosystem"
+    ]
+  },
+  "required_languages": [
+    "English"
+  ]
+}

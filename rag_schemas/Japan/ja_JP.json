@@ -1,0 +1,57 @@
+{
+  "language": "ja_JP",
+  "language_name": "Japanese",
+  "country": "Japan",
+  "section_headings": {
+    "personal_info": "氏名・連絡先",
+    "education": "学歴",
+    "experience": "職歴",
+    "skills": "スキル",
+    "certifications": "資格・免許",
+    "self_pr": "自己PR",
+    "motivation": "志望動機"
+  },
+  "labels": {
+    "address": "住所",
+    "phone": "電話番号",
+    "email": "メールアドレス",
+    "profile": "LinkedIn",
+    "born": "生年月日",
+    "nationality": "国籍",
+    "location": "居住地",
+    "photo": "写真"
+  },
+  "date_format": "YYYY.MM.DD",
+  "action_verbs": [
+    "実行した",
+    "開発した",
+    "提案した",
+    "管理した",
+    "達成した",
+    "改善した",
+    "貢献した",
+    "率いた",
+    "実施した",
+    "設計した",
+    "分析した",
+    "最適化した"
+  ],
+  "common_phrases": {
+    "present": "現在",
+    "to": "〜まで",
+    "references_available": "要望に応じて提供可能",
+    "years_experience": "年の経験"
+  },
+  "language_levels": {
+    "JLPT_N1": "日本語能力試験N1（上級）",
+    "JLPT_N2": "日本語能力試験N2（中上級）",
+    "JLPT_N3": "日本語能力試験N3（中級）",
+    "TOEIC_800": "TOEIC 800点以上（ビジネスレベル）"
+  },
+  "formatting_rules": {
+    "bullet_start": "動詞で始める（実行した、管理した など）",
+    "no_pronouns": "一人称（私など）を使わない",
+    "formal_tone": "敬語・丁寧語を使用（です／ます調またはである調）",
+    "metrics": "数字で成果を示す（％、件数など）"
+  }
+}

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="{{ rag_data.language_code }}">
+<head>
+    <meta charset="UTF-8">
+    <title>Resume - {{ user_data.full_name }}</title>
+    <style>
+        @page { size: A4; margin: 1in; }
+        body {
+            font-family: 'Georgia', 'Times New Roman', serif;
+            font-size: 10.5pt;
+            line-height: 1.6;
+            color: #1a1a1a;
+            margin: 0;
+            padding: 0;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        h1 {
+            font-size: 24pt;
+            font-weight: normal;
+            border-bottom: 1px solid #111;
+            display: inline-block;
+            padding-bottom: 5px;
+            margin-bottom: 15px;
+        }
+        .contact-line {
+            font-size: 9pt;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        .section-title {
+            font-size: 11pt;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            border-bottom: 1px solid #eee;
+            margin-top: 30px;
+            margin-bottom: 15px;
+            color: #444;
+        }
+        .entry { margin-bottom: 20px; }
+        .entry-header { font-weight: bold; font-size: 11pt; }
+        .entry-sub { font-style: italic; color: #555; margin-bottom: 5px; }
+        .date { float: right; font-style: normal; color: #888; font-weight: normal; font-size: 9pt; }
+        ul { margin: 5px 0 0 15px; padding: 0; }
+        li { margin-bottom: 4px; }
+        .skills-container { line-height: 2; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>{{ user_data.full_name }}</h1>
+        <div class="contact-line">
+            {% if user_data.contact.email %}{{ user_data.contact.email }}{% endif %}
+            {% if user_data.contact.phone %} &bull; {{ user_data.contact.phone }}{% endif %}
+            {% if user_data.contact.city %} &bull; {{ user_data.contact.city }}{% endif %}
+        </div>
+        <div style="font-style: italic; color: #555; margin-top: 5px;">{{ user_data.title or job_role }}</div>
+    </div>
+
+    {% if user_data.professional_summary or user_data.summary_text or user_data.summary %}
+    <div class="section">
+        <div class="section-title">Summary</div>
+        <p>{{ user_data.professional_summary or user_data.summary_text or user_data.summary }}</p>
+    </div>
+    {% endif %}
+
+    {% if user_data.work_experiences %}
+    <div class="section">
+        <div class="section-title">Experience</div>
+        {% for job in user_data.work_experiences %}
+        <div class="entry">
+            <div class="entry-header">
+                {{ job.job_title }}
+                <span class="date">{{ job.start_date }} - {{ job.end_date or 'Present' }}</span>
+            </div>
+            <div class="entry-sub">{{ job.company }}</div>
+            {% if job.achievements %}
+            <ul>
+                {% for bullet in job.achievements %}
+                <li>{{ bullet }}</li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if user_data.educations %}
+    <div class="section">
+        <div class="section-title">Education</div>
+        {% for edu in user_data.educations %}
+        <div class="entry">
+            <div class="entry-header">
+                {{ edu.degree }}
+                <span class="date">{{ edu.graduation_date }}</span>
+            </div>
+            <div class="entry-sub">{{ edu.institution }}</div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if user_data.skills %}
+    <div class="section">
+        <div class="section-title">Skills</div>
+        <div class="skills-container">
+            {{ user_data.skills | join(' &bull; ') }}
+        </div>
+    </div>
+    {% endif %}
+</body>
+</html>

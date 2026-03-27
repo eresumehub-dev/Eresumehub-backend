@@ -1,0 +1,67 @@
+{
+  "language": "de_DE",
+  "language_name": "German",
+  "country": "Germany",
+  
+  "section_headings": {
+    "personal_info": "Persönliche Daten",
+    "summary": "Profil",
+    "experience": "Berufserfahrung",
+    "education": "Ausbildung",
+    "skills": "Kenntnisse",
+    "languages": "Sprachkenntnisse",
+    "certifications": "Zertifikate",
+    "references": "Referenzen"
+  },
+  
+  "action_verbs": [
+    "Entwickelte",
+    "Koordinierte",
+    "Optimierte",
+    "Leitete",
+    "Implementierte",
+    "Analysierte",
+    "Steigerte",
+    "Verwaltete",
+    "Konzipierte",
+    "Plante",
+    "Überwachte",
+    "Verbesserte"
+  ],
+  
+  "common_phrases": {
+    "present": "heute",
+    "to": "bis",
+    "references_available": "auf Anfrage verfügbar",
+    "languages": "Sprachkenntnisse",
+    "skills": "Fähigkeiten",
+    "experience_years": "Jahre Erfahrung"
+  },
+  
+  "language_levels": {
+    "A1": "Anfänger",
+    "A2": "Grundkenntnisse",
+    "B1": "Mittelstufe",
+    "B2": "Fortgeschritten",
+    "C1": "Verhandlungssicher",
+    "C2": "Muttersprache"
+  },
+  
+  "date_format": "DD.MM.YYYY",
+  "date_separator": ".",
+  
+  "example_bullets": [
+    "Steigerte Verkaufszahlen um 25% im ersten Quartal durch Implementierung neuer Strategien",
+    "Entwickelte eine neue Software-Lösung, die die Effizienz um 30% verbesserte",
+    "Leitete ein Team von 10 Personen zur erfolgreichen Projektabschluss",
+    "Optimierte den Produktionsprozess und reduzierte Kosten um 15%",
+    "Implementierte ein neues CRM-System für 200+ Benutzer"
+  ],
+  
+  "formatting_rules": {
+    "bullet_start": "Use action verbs (Entwickelte, Leitete, etc.)",
+    "no_pronouns": "Never use 'ich' (I) or 'mich' (me)",
+    "formal_tone": "Always use formal German (Sie-form)",
+    "metrics": "Always include numbers and percentages"
+  }
+}

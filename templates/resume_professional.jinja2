@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="{{ rag_data.language_code }}">
+<head>
+    <meta charset="UTF-8">
+    <title>Resume - {{ user_data.full_name }}</title>
+    <style>
+        @page { size: A4; margin: 0.75in; }
+        body {
+            font-family: 'Helvetica', 'Arial', sans-serif;
+            font-size: 10.5pt;
+            line-height: 1.5;
+            color: #333;
+            margin: 0;
+            padding: 0;
+        }
+        .header {
+            text-align: left; /* Changed from center to left */
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #2c3e50;
+        }
+        h1 {
+            font-size: 24pt;
+            font-weight: 800;
+            color: #2c3e50;
+            margin: 0 0 5px 0;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            -pdf-outline: false;
+            -pdf-outline-level: 0;
+        }
+        .contact-info {
+            font-size: 9.5pt;
+            color: #555;
+        }
+        .contact-info span { margin: 0 5px; }
+        .section-title {
+            font-size: 12pt; /* Slightly smaller */
+            font-weight: 700;
+            color: #2c3e50;
+            border-bottom: 1px solid #ccc;
+            margin-top: 20px;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            -pdf-outline: false;
+            -pdf-outline-level: 0;
+        }
+        .job-header {
+            margin-bottom: 2px;
+            border-bottom: 1px none #eee;
+        }
+        /* ... (Keep floats if they work, or just use table for safety) ... */
+        .job-title { font-weight: bold; font-size: 11pt; color: #000; }
+        .job-company { font-style: italic; color: #444; }
+        .job-date { font-weight: bold; font-size: 10pt; color: #666; }
+        ul { margin: 5px 0 10px 20px; padding: 0; }
+        li { margin-bottom: 3px; }
+        .skills-list { margin-top: 5px; }
+        .skill-tag {
+            /* Clean look: No background, just text with bullets or commas */
+            background: transparent; 
+            padding: 0;
+            margin-right: 15px;
+            margin-bottom: 5px;
+            display: inline-block;
+            border-radius: 0;
+            font-size: 10pt;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        {% if user_data.profile_pic_url %}
+            <!-- Photo Layout: Two Columns (Info Left, Photo Right) -->
+            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                    <td align="left" valign="top">
+                        <h1 style="margin-bottom: 5px;">{{ user_data.full_name }}</h1>
+                         <div style="font-size: 9.5pt; color: #555; line-height: 1.4;">
+                            {% if user_data.title %}<div style="font-size: 11pt; color: #666; margin-bottom: 4px; font-weight: 600;">{{ user_data.title }}</div>{% endif %}
+                            {% if user_data.date_of_birth %}Born: {{ user_data.date_of_birth }}<br>{% endif %}
+                            {% if user_data.contact.email %}{{ user_data.contact.email }}<br>{% endif %}
+                            {% if user_data.contact.phone %}{{ user_data.contact.phone }}<br>{% endif %}
+                            {% if user_data.contact.city %}{{ user_data.contact.city }}<br>{% endif %}
+                            {% if user_data.contact.linkedin %}LinkedIn{% endif %}
+                        </div>
+                    </td>
+                    <td align="right" valign="top" width="110">
+                        <img src="{{ user_data.profile_pic_url }}" style="width: 100px; height: 120px; object-fit: cover; border-radius: 4px; border: 1px solid #ddd;" pdf="true" />
+                    </td>
+                </tr>
+            </table>
+        {% else %}
+            <!-- Standard Layout: Left Aligned (No Photo) -->
+            <h1 style="margin-bottom: 2px;">{{ user_data.full_name }}</h1>
+            {% if user_data.title %}<div style="font-size: 11pt; color: #666; margin-bottom: 8px; font-weight: 600;">{{ user_data.title }}</div>{% endif %}
+            
+            <div style="font-size: 9.5pt; color: #555;">
+                {% if user_data.date_of_birth %}Born: {{ user_data.date_of_birth }} | {% endif %}
+                {% if user_data.contact.email %}{{ user_data.contact.email }} | {% endif %}
+                {% if user_data.contact.phone %}{{ user_data.contact.phone }} | {% endif %}
+                {% if user_data.contact.city %}{{ user_data.contact.city }} | {% endif %}
+                {% if user_data.contact.linkedin %}LinkedIn{% endif %}
+            </div>
+        {% endif %}
+    </div>
+
+    <!-- Summary Section -->
+    {% if user_data.professional_summary or user_data.summary_text or user_data.summary %}
+    <div class="section" style="margin-bottom: 15px;">
+        <div class="section-title">{{ rag_data.get('language_template', {}).get('section_headings', {}).get('self_pr', 'Professional Summary') }}</div>
+        <p style="margin-top: 5px;">{{ user_data.professional_summary or user_data.summary_text or user_data.summary }}</p>
+    </div>
+    {% endif %}
+
+    <!-- Experience Section -->
+    {% if user_data.work_experiences %}
+    <div class="section">
+        <div class="section-title">{{ rag_data.get('language_template', {}).get('section_headings', {}).get('experience', 'Work Experience') }}</div>
+        {% for job in user_data.work_experiences %}
+        <div class="job-entry" style="margin-bottom: 15px;">
+            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                    <td width="70%" align="left" style="vertical-align: top;">
+                        <span class="job-title">{{ job.job_title }}</span>
+                        {% if job.company %} - <span class="job-company">{{ job.company }}</span>{% endif %}
+                    </td>
+                    <td width="30%" align="right" style="vertical-align: top;">
+                        <span class="job-date">{{ job.start_date }} - {{ job.end_date if job.end_date else 'Present' }}</span>
+                    </td>
+                </tr>
+            </table>
+            {% if job.description or job.achievements %}
+            <ul style="margin-top: 3px; margin-bottom: 0;">
+                {% for bullet in (job.description or job.achievements) %}
+                <li>{{ bullet }}</li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Projects Section -->
+    {% if user_data.projects %}
+    <div class="section">
+        <div class="section-title">Projects</div>
+        {% for proj in user_data.projects %}
+        <div class="job-entry">
+            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                    <td width="70%" align="left" style="vertical-align: top;">
+                        <span class="job-title">{{ proj.title }}</span>
+                        {% if proj.role %} - <span class="job-company">{{ proj.role }}</span>{% endif %}
+                    </td>
+                    <td width="30%" align="right" style="vertical-align: top;">
+                        <span class="job-date">{{ proj.start_date }} - {{ proj.end_date if proj.end_date else 'Present' }}</span>
+                    </td>
+                </tr>
+            </table>
+            {% if proj.link %}<div><span style="color:#000;">{{ proj.link }}</span></div>{% endif %}
+            
+            <p style="margin-top: 5px;">{{ proj.description }}</p>
+            {% if proj.technologies %}
+            <p style="font-size: 9pt; color: #666;"><strong>Stack:</strong> {{ proj.technologies|join(', ') }}</p>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Education Section -->
+    {% if user_data.educations %}
+    <div class="section">
+        <div class="section-title">{{ rag_data.get('language_template', {}).get('section_headings', {}).get('education', 'Education') }}</div>
+        {% for edu in user_data.educations %}
+        <div class="job-entry" style="margin-bottom: 10px;">
+            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                    <td width="70%" align="left" style="vertical-align: top;">
+                        <span class="job-title">{{ edu.degree }}</span>
+                        {% if edu.institution %} - <span class="job-company">{{ edu.institution }}</span>{% endif %}
+                    </td>
+                    <td width="30%" align="right" style="vertical-align: top;">
+                        {% if edu.graduation_date %}<span class="job-date">{{ edu.graduation_date }}</span>{% endif %}
+                    </td>
+                </tr>
+            </table>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Certifications Section -->
+    {% if user_data.certifications %}
+    <div class="section">
+        <div class="section-title">{{ rag_data.get('language_template', {}).get('section_headings', {}).get('certifications', 'Certifications & Licenses') }}</div>
+        <ul>
+            {% for cert in user_data.certifications %}
+            <li>
+                {% if cert is mapping %}
+                    <strong>{{ cert.name }}</strong>
+                    {% if cert.issuing_organization %} - {{ cert.issuing_organization }}{% endif %}
+                    {% if cert.issue_date %} ({{ cert.issue_date }}){% endif %}
+                {% else %}
+                    <strong>{{ cert }}</strong>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    <!-- Skills Section -->
+    {% if user_data.skills %}
+    <div class="section">
+        <div class="section-title">{{ rag_data.get('language_template', {}).get('section_headings', {}).get('skills', 'Skills') }}</div>
+        <div class="skills-list">
+            {% for skill in user_data.skills %}
+            <span class="skill-tag">{{ skill }}</span>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Languages Section -->
+    {% if user_data.languages %}
+    <div class="section">
+        <div class="section-title">{{ rag_data.get('language_template', {}).get('section_headings', {}).get('languages', 'Languages') }}</div>
+        <ul>
+            {% for lang in user_data.languages %}
+            <li>
+                {% if lang is mapping %}
+                    <strong>{{ lang.name }}</strong>
+                    {% if lang.level %} - {{ lang.level }}{% endif %}
+                {% else %}
+                    <strong>{{ lang }}</strong>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    <!-- Motivation Section -->
+    {% if user_data.motivation %}
+    <div class="section" style="margin-top: 15px;">
+        <div class="section-title">{{ rag_data.get('language_template', {}).get('section_headings', {}).get('motivation', 'Motivation') }}</div>
+        <p style="margin-top: 5px;">{{ user_data.motivation }}</p>
+    </div>
+    {% endif %}
+</body>
+</html>

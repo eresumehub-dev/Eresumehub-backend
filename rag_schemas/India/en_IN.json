@@ -1,0 +1,124 @@
+{
+  "language": "en_IN",
+  "language_name": "English (Indian)",
+  "country": "India",
+  
+  "section_headings": {
+    "personal_info": "Personal Information",
+    "summary": "Career Objective / Professional Summary",
+    "experience": "Work Experience / Professional Experience",
+    "education": "Educational Qualifications",
+    "skills": "Technical Skills / Core Competencies",
+    "soft_skills": "Soft Skills",
+    "languages": "Languages Known",
+    "certifications": "Certifications & Training",
+    "projects": "Projects",
+    "achievements": "Achievements & Awards",
+    "extracurricular": "Extracurricular Activities",
+    "references": "References",
+    "declaration": "Declaration"
+  },
+  
+  "action_verbs": [
+    "Achieved",
+    "Amplified",
+    "Analyzed",
+    "Automated",
+    "Collaborated",
+    "Coordinated",
+    "Designed",
+    "Developed",
+    "Directed",
+    "Established",
+    "Exceeded",
+    "Facilitated",
+    "Implemented",
+    "Improved",
+    "Increased",
+    "Led",
+    "Managed",
+    "Optimized",
+    "Organized",
+    "Pioneered",
+    "Spearheaded",
+    "Streamlined",
+    "Supervised",
+    "Surpassed",
+    "Trained"
+  ],
+  
+  "common_phrases": {
+    "present": "Present",
+    "to": "to",
+    "references_available": "Available upon request",
+    "languages": "Languages Known",
+    "skills": "Skills",
+    "experience_years": "years of experience",
+    "cgpa": "CGPA",
+    "percentage": "Percentage",
+    "declaration_text": "I hereby declare that the above information is true to the best of my knowledge.",
+    "location_format": "City, State, India"
+  },
+  
+  "language_levels": {
+    "native": "Native/Mother Tongue",
+    "professional": "Professional Proficiency",
+    "conversational": "Conversational",
+    "basic": "Basic Knowledge",
+    "fluent": "Fluent",
+    "reading": "Reading",
+    "writing": "Writing",
+    "speaking": "Speaking"
+  },
+  
+  "date_format": "MM/YYYY",
+  "date_separator": "/",
+  "alternative_date_format": "Month YYYY (e.g., Jan 2025)",
+  
+  "example_bullets": [
+    "Increased sales revenue by 25% within 6 months through implementation of targeted marketing strategies",
+    "Led a cross-functional team of 15 members to successfully deliver project 2 months ahead of schedule",
+    "Developed a Machine Learning model using Python that improved sales forecasts by 30%",
+    "Reduced processing time by 40% through automation of manual workflows using RPA",
+    "Managed a portfolio worth ₹10 crore, achieving 95% client satisfaction rating",
+    "Implemented AWS cloud migration for 50+ applications, reducing infrastructure costs by 35%",
+    "Spearheaded digital marketing campaign that boosted user engagement by 72%",
+    "Coordinated launch of new product line generating ₹5 Cr revenue in first quarter",
+    "Optimized production process reducing errors by 40% and improving efficiency by 25%",
+    "Trained and mentored 20+ junior developers in Agile methodologies and best practices"
+  ],
+  
+  "formatting_rules": {
+    "bullet_start": "Use action verbs (Achieved, Led, Developed, etc.)",
+    "no_pronouns": "Avoid using 'I', 'me', or 'my' - start directly with action verbs",
+    "formal_tone": "Professional and formal tone using Indian English conventions",
+    "metrics": "Always include numbers, percentages, and rupee amounts (₹) where applicable",
+    "quantify": "Quantify achievements with specific data and business impact",
+    "british_spelling": "Use British spellings (analysed, optimise, organised) common in Indian English"
+  },
+  
+  "personal_details_guidance": {
+    "for_private_sector": {
+      "include": ["Full Name", "Phone (+91 prefix)", "Email", "LinkedIn URL", "City, State"],
+      "optional": ["Date of Birth", "Languages Known"],
+      "avoid": ["Photo", "Father's Name", "Religion", "Marital Status", "Gender"]
+    },
+    "for_government_psu": {
+      "mandatory": ["Photo", "Full Name", "Date of Birth", "Father's Name", "Category (SC/ST/OBC/General)", "Gender", "Marital Status", "Complete Address", "Signature"],
+      "include": ["Phone", "Email", "Nationality", "Languages Known"],
+      "declaration": "Required with signature and date"
+    },
+    "for_freshers": {
+      "highlight": ["Educational Qualifications", "Academic Percentage/CGPA", "Projects", "Internships", "Certifications"],
+      "optional": ["Photo (avoid for tech/corporate)", "Date of Birth"]
+    }
+  },
+  
+  "regional_languages": {
+    "north": ["Hindi", "Punjabi", "Urdu"],
+    "south": ["Tamil", "Telugu", "Kannada", "Malayalam"],
+    "west": ["Marathi", "Gujarati"],
+    "east": ["Bengali", "Odia", "Assamese"],
+    "common_format": "Language Name - Proficiency Level (Native/Fluent/Conversational/Basic)"
+  }
+}
