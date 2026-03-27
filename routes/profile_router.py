@@ -79,8 +79,8 @@ async def create_profile_from_resume(
             ]
         }
         
-        # Create/update profile
-        profile = await profile_service.create_or_update_profile(user_id, profile_data)
+        # Create/update profile using the AI intelligent merge
+        profile = await profile_service.create_or_update_profile(user_id, profile_data, is_ai_import=True)
         
         return {
             "success": True,

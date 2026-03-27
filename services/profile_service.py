@@ -105,7 +105,7 @@ class ProfileService:
             logger.error(f"Error fetching profile for user {user_id}: {str(e)}")
             raise
     
-    async def create_or_update_profile(self, user_id: str, profile_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def create_or_update_profile(self, user_id: str, profile_data: Dict[str, Any], is_ai_import: bool = False) -> Dict[str, Any]:
         """Create or update user profile"""
         try:
             # FIX: Resolve Public ID to Auth ID
@@ -118,11 +118,13 @@ class ProfileService:
             if user_response.data:
                 auth_user_id = user_response.data[0]['auth_user_id']
             
-            # Check if profile exists using Auth ID
+            # Check if profile exists using Auth ID and grab current fields for intelligent merging
             existing = await self.supabase.client.table('user_profiles')\
-                .select('id')\
+                .select('*')\
                 .eq('user_id', auth_user_id)\
                 .execute()
+            
+            existing_profile = existing.data[0] if existing.data else None
             
             profile_payload = {
                 'user_id': auth_user_id,
@@ -139,19 +141,24 @@ class ProfileService:
             
             for field in fields_to_check:
                 if field in profile_data:
+                    val = profile_data[field]
+                    
+                    # AI IMPORT SAFETY: Don't overwrite existing db fields with empty AI strings
+                    if is_ai_import and not val and existing_profile and existing_profile.get(field):
+                        continue
+                    
                     # Special handling for photo_url: Don't overwrite existing with None unless explicit
-                    if field == 'photo_url' and not profile_data[field]:
+                    if field == 'photo_url' and not val:
                          continue
                     
-                    # FIX: Handle empty strings for Date fields (Postgres 22007 error)
-                    if field == 'date_of_birth' and profile_data[field] == "":
+                    if field == 'date_of_birth' and val == "":
                         profile_payload[field] = None
                     else:
-                        profile_payload[field] = profile_data[field]
+                        profile_payload[field] = val
             
-            if existing.data:
+            if existing_profile:
                 # Update existing profile
-                profile_id = existing.data[0]['id']
+                profile_id = existing_profile['id']
                 response = await self.supabase.client.table('user_profiles')\
                     .update(profile_payload)\
                     .eq('id', profile_id)\
@@ -163,21 +170,29 @@ class ProfileService:
                     .execute()
                 profile_id = response.data[0]['id']
             
-            # Handle work experiences
+            # Handle work experiences (Skip overwrite if AI import has none but DB has some)
             if 'work_experiences' in profile_data:
-                await self._update_work_experiences(profile_id, profile_data['work_experiences'])
+                should_update_work = not (is_ai_import and not profile_data['work_experiences'])
+                if should_update_work:
+                    await self._update_work_experiences(profile_id, profile_data['work_experiences'])
             
             # Handle education
             if 'educations' in profile_data:
-                await self._update_educations(profile_id, profile_data['educations'])
+                should_update_edu = not (is_ai_import and not profile_data['educations'])
+                if should_update_edu:
+                    await self._update_educations(profile_id, profile_data['educations'])
 
             # Handle projects
             if 'projects' in profile_data:
-                await self._update_projects(profile_id, profile_data['projects'])
+                should_update_proj = not (is_ai_import and not profile_data['projects'])
+                if should_update_proj:
+                    await self._update_projects(profile_id, profile_data['projects'])
             
             # Handle certifications
             if 'certifications' in profile_data:
-                await self._update_certifications(profile_id, profile_data['certifications'])
+                should_update_cert = not (is_ai_import and not profile_data['certifications'])
+                if should_update_cert:
+                    await self._update_certifications(profile_id, profile_data['certifications'])
             
             return await self.get_profile(user_id)
             
