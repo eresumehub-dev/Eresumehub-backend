@@ -45,8 +45,6 @@ async def get_current_user_from_token(
 
         # Auto-create user in public.users table if they don't exist
         if not user_row:
-            logger.info(f"Auto-creating user in public.users table for auth_user_id: {auth_user_id}")
-            
             # Get user metadata and email from auth response
             user_metadata = {}
             user_email = ""
@@ -57,23 +55,56 @@ async def get_current_user_from_token(
             else:
                 user_metadata = getattr(auth_resp.user, "user_metadata", {})
                 user_email = getattr(auth_resp.user, "email", "")
+
+            # 1. INTELLIGENT ACCOUNT LINKING: Check if user exists by email
+            if user_email:
+                email_resp = await client.table("users").select("*").eq("email", user_email).limit(1).execute()
+                if email_resp.data:
+                    existing_user = email_resp.data[0]
+                    logger.info(f"Found existing user record for email: {user_email}. Linking auth_user_id: {auth_user_id}")
+                    # Update existing record with the new auth_user_id
+                    update_resp = await client.table("users").update({"auth_user_id": auth_user_id}).eq("id", existing_user["id"]).execute()
+                    if update_resp.data:
+                        user_row = update_resp.data[0]
             
-            # Create user record
-            new_user = {
-                "auth_user_id": auth_user_id,
-                "email": user_email,
-                "username": user_metadata.get("username", f"user_{auth_user_id[:8]}"),
-                "full_name": user_metadata.get("full_name", user_email.split("@")[0])
-            }
-            
-            try:
-                create_resp = await client.table("users").insert(new_user).execute()
-                user_row = create_resp.data[0] if create_resp.data else None
-                if not user_row:
-                    raise Exception("Failed to create user in database")
-            except Exception as create_err:
-                logger.error(f"Failed to auto-create user: {create_err}")
-                raise HTTPException(status_code=500, detail="Failed to create user account")
+            # 2. CREATE NEW USER (if not linked)
+            if not user_row:
+                logger.info(f"Auto-creating user in public.users table for auth_user_id: {auth_user_id}")
+                
+                base_username = user_metadata.get("username") or user_email.split("@")[0]
+                full_name = user_metadata.get("full_name") or user_email.split("@")[0]
+                
+                # COLLISION RESISTANCE: Try to generate a unique username if taken
+                max_retries = 3
+                current_username = base_username
+                
+                for attempt in range(max_retries):
+                    new_user = {
+                        "auth_user_id": auth_user_id,
+                        "email": user_email,
+                        "username": current_username,
+                        "full_name": full_name
+                    }
+                    
+                    try:
+                        create_resp = await client.table("users").insert(new_user).execute()
+                        user_row = create_resp.data[0] if create_resp.data else None
+                        if user_row:
+                            break
+                    except Exception as create_err:
+                        err_str = str(create_err)
+                        if "23505" in err_str or "duplicate key" in err_str:
+                            # Username collision!
+                            suffix = str(uuid.uuid4())[:4]
+                            current_username = f"{base_username}_{suffix}"
+                            logger.warning(f"Username conflict for '{base_username}', retrying as '{current_username}'")
+                        else:
+                            logger.error(f"Failed to auto-create user (Attempt {attempt+1}): {create_err}")
+                            if attempt == max_retries - 1:
+                                raise HTTPException(status_code=500, detail="Failed to create user account")
+
+            if not user_row:
+                raise Exception("Failed to resolve or create user in database")
 
         return {
             "platform_user_id": user_row["id"],     # public.users.id
