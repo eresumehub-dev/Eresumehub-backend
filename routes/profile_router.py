@@ -19,6 +19,47 @@ router = APIRouter(prefix="/api/v1/profile", tags=["Profile"])
 profile_service = ProfileService(supabase_service)
 
 logger = logging.getLogger(__name__)
+ 
+@router.get("")
+@router.get("/")
+async def get_profile(user_id: str = Depends(get_current_user_id)):
+    """Fetch user profile with work experience and education"""
+    try:
+        profile = await profile_service.get_profile(user_id)
+        if not profile:
+            # Return a structured empty profile instead of 404 to gracefully handle new users
+            return {
+                "exists": False,
+                "profile": {
+                    "full_name": "",
+                    "email": "",
+                    "work_experiences": [],
+                    "educations": [],
+                    "skills": [],
+                    "languages": [],
+                    "projects": [],
+                    "certifications": []
+                }
+            }
+        return {"exists": True, "profile": profile}
+    except Exception as e:
+        logger.error(f"Error fetching profile: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch profile: {str(e)}")
+
+@router.post("")
+@router.post("/")
+@router.put("")
+async def update_profile(
+    profile_data: Dict[str, Any],
+    user_id: str = Depends(get_current_user_id)
+):
+    """Create or update user profile manually"""
+    try:
+        profile = await profile_service.create_or_update_profile(user_id, profile_data)
+        return {"success": True, "profile": profile}
+    except Exception as e:
+        logger.error(f"Error updating profile: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update profile: {str(e)}")
 
 @router.post("/from-resume")
 async def create_profile_from_resume(
