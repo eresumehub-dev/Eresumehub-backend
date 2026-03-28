@@ -209,14 +209,7 @@ app.openapi = add_auth_security_to_openapi
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=Config.ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-app.add_middleware(GZipMiddleware, minimum_size=1000)
+# CORS & GZip are added later to ensure they wrap other middlewares correctly
 
 # Request ID Middleware
 @app.get("/api/health")
@@ -243,6 +236,24 @@ app.include_router(auth_router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(schema_router)
 app.include_router(analytics_router)
 app.include_router(profile_router)
+
+# -----------------------------
+# Outermost Middleware (Last Added = First Executed)
+# -----------------------------
+# CORS Middleware must be outermost to handle OPTIONS correctly
+has_wildcard = "*" in Config.ALLOWED_ORIGINS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[] if has_wildcard else Config.ALLOWED_ORIGINS,
+    allow_origin_regex=".*" if has_wildcard else None,
+    # Standard CORS: allow_credentials must be False if using wildcard "*"
+    # But allow_origin_regex can bypass this while allowing all origins.
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # -----------------------------
 # Authentication Dependencies
