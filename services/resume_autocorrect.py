@@ -66,13 +66,40 @@ class ResumeAutocorrect:
     @staticmethod
     def _autocorrect_germany(data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Specific fixes for the German market (Nominal style, no pronouns).
+        Specific fixes for the German market (Nominal style, no pronouns, DD.MM.YYYY).
         """
-        # Strip Pronouns from Summary
+        # 1. Strip Pronouns from Summary
         if data.get("professional_summary"):
              data["professional_summary"] = PRONOUNS_REGEX.sub("", data["professional_summary"]).strip()
         
+        # 2. Date Formatting Enforcement (YYYY-MM-DD -> DD.MM.YYYY)
+        for job in data.get("work_experiences", []):
+            for d_key in ["start_date", "end_date"]:
+                if job.get(d_key):
+                    job[d_key] = ResumeAutocorrect._format_date_german(job[d_key])
+        
         return data
+
+    @staticmethod
+    def _format_date_german(d: str) -> str:
+        if not d: return d
+        s = str(d).strip()
+        if s.lower() in ['present', 'current', 'now', 'today']: return "Present"
+        
+        # Normalize slashes/dashes
+        s = s.replace('/', '.').replace('-', '.')
+        
+        # 2020.01.01 -> 01.01.2020
+        m = re.match(r'^(\d{4})\.(\d{2})\.(\d{2})$', s)
+        if m: return f"{m.group(3)}.{m.group(2)}.{m.group(1)}"
+        
+        # 2020.01 -> 01.2020
+        m = re.match(r'^(\d{4})\.(\d{2})$', s)
+        if m: return f"{m.group(2)}.{m.group(1)}"
+        
+        # Already DD.MM.YYYY or MM.YYYY? Just normalize dots
+        s = re.sub(r'\.+', '.', s)
+        return s
 
 # Singleton instance
 resume_autocorrect = ResumeAutocorrect()

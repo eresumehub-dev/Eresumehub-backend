@@ -58,50 +58,38 @@ analytics_service = AnalyticsService(supabase_service)
 def html_to_pdf(html_content: str) -> bytes:
     """Convert HTML string to PDF bytes using xhtml2pdf"""
     # Character Sanitization for PDF rendering (xhtml2pdf lacks full Unicode support for default fonts)
-    replacements = {
-        '\u2010': '-', # Hyphen
-        '\u2011': '-', # Non-breaking hyphen
-        '\u2012': '-', # Figure dash
-        '\u2013': '-', # En dash
-        '\u2014': '--',# Em dash
-        '\u2015': '--',# Horizontal bar
-        '\u2017': '_', # Double low line
-        '\u2018': "'", # Left single quotation mark
-        '\u2019': "'", # Right single quotation mark
-        '\u201a': "'", # Single low-9 quotation mark
-        '\u201c': '"', # Left double quotation mark
-        '\u201d': '"', # Right double quotation mark
-        '\u201e': '"', # Double low-9 quotation mark
-        '\u2022': '*', # Bullet
-        '\u2026': '...', # Ellipsis
-        '\u00a0': ' ', # Non-breaking space
-        '\xad': '-',    # Soft hyphen
-    }
-    for char, replacement in replacements.items():
-        html_content = html_content.replace(char, replacement)
+    # character sanitization for PDF (xhtml2pdf is picky)
+    def clean_text(t):
+        if not isinstance(t, str): return t
+        # Standard replacements
+        replacements = {
+            '\u2010': '-', '\u2011': '-', '\u2012': '-', '\u2013': '-', '\u2014': '--',
+            '\u2015': '--', '\u2017': '_', '\u2018': "'", '\u2019': "'", '\u201a': "'",
+            '\u201c': '"', '\u201d': '"', '\u201e': '"', '\u2022': '*', '\u2026': '...',
+            '\u00a0': ' ', '\xad': '-'
+        }
+        for char, rep in replacements.items():
+            t = t.replace(char, rep)
+        # Remove invisible characters that break xhtml2pdf kerning
+        t = "".join(char for char in t if ord(char) >= 32 or char in "\n\r\t")
+        return " ".join(t.split()) # Normalize whitespace gaps
 
-    # DEBUG: Save HTML to file to inspect crashes
-    try:
-        with open("debug_last_crash.html", "w", encoding="utf-8") as f:
-            f.write(html_content)
-    except:
-        pass
-        
+    # We apply this cleaning to the raw HTML content for safety
+    html_content = clean_text(html_content)
+
     pdf_buffer = io.BytesIO()
     try:
-        # CRITICAL FIX for Japanese: Use BytesIO with utf-8 encoding
         pisa_status = pisa.CreatePDF(
-            io.BytesIO(html_content.encode('utf-8')),  # Source HTML (encoded)
-            dest=pdf_buffer,                            # Output PDF
-            encoding='utf-8'                            # Explicit encoding
+            io.BytesIO(html_content.encode('utf-8')),
+            dest=pdf_buffer,
+            encoding='utf-8'
         )
         if pisa_status.err:
             raise Exception("Failed to generate PDF (pisa_status.err)")
     except Exception as e:
         import traceback
         with open("crash_report_server.txt", "w") as f:
-            f.write(f"ERROR: {str(e)}\n")
-            f.write(traceback.format_exc())
+            f.write(f"ERROR: {str(e)}\n\n{traceback.format_exc()}")
         raise e
         
     return pdf_buffer.getvalue()
@@ -1606,6 +1594,15 @@ class HTMLGenerator:
         except Exception as e:
             logger.warning(f"Template '{template_name}' not found, falling back to professional. Error: {e}")
             template = HTMLGenerator._env.get_template("resume_professional.jinja2")
+
+        # SANITIZATION: Clean text fields to prevent xhtml2pdf "word gaps" bug
+        def clean_field(t):
+            if not t or not isinstance(t, str): return t
+            return " ".join(t.split())
+
+        user_data["full_name"] = clean_field(user_data.get("full_name"))
+        if user_data.get("headline"):
+            user_data["headline"] = clean_field(user_data["headline"])
 
         # SANITIZATION: Ensure data types are PDF-safe (xhtml2pdf is strict)
         # 1. Ensure lists are actually lists (AI sometimes returns strings)

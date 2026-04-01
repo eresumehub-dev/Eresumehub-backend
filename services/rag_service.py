@@ -13,7 +13,10 @@ logger = logging.getLogger(__name__)
 # Ideally, Config would be in config/config.py, but it's in main.py.
 # To avoid circular imports, I'll allow passing the schema directory or assume a default.
 
-RAG_SCHEMAS_DIR = os.getenv("RAG_SCHEMAS_DIR", "rag_schemas")
+# Standardize RAG pathing for production (Render/Docker)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+RAG_SCHEMAS_DIR = os.getenv("RAG_SCHEMAS_DIR", os.path.join(BASE_DIR, "rag_schemas"))
+logger.info(f"RAG Service initialized using directory: {RAG_SCHEMAS_DIR}")
 
 class RAGService:
     @staticmethod

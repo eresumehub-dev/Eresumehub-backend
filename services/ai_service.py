@@ -1556,26 +1556,39 @@ Return a comprehensive resume that fills about one page of content.
         """Format dates according to target country standards."""
         if not date_str: return "Present"
         s = str(date_str).strip()
-        if s.lower() in ['present', 'current', 'now']: return "Present"
+        if s.lower() in ['present', 'current', 'now', 'today']: return "Present"
         
         try:
-            # Simple normalization for common cases
-            s = s.replace('/', '.')
+            # Standardize slashes/dashes to dots if possible
+            s = s.replace('/', '.').replace('-', '.')
+            
             if country.lower() == "germany":
-                # ISO YYYY-MM-DD -> DD.MM.YYYY
-                m = re.match(r'^(\d{4})[.-](\d{2})[.-](\d{2})$', s)
+                # ISO YYYY.MM.DD -> DD.MM.YYYY
+                m = re.match(r'^(\d{4})\.(\d{2})\.(\d{2})$', s)
                 if m: return f"{m.group(3)}.{m.group(2)}.{m.group(1)}"
-                # ISO YYYY-MM -> MM.YYYY
-                m = re.match(r'^(\d{4})[.-](\d{2})$', s)
+                
+                # ISO YYYY.MM -> MM.YYYY (Common in DE)
+                m = re.match(r'^(\d{4})\.(\d{2})$', s)
                 if m: return f"{m.group(2)}.{m.group(1)}"
+                
+                # American MM.YYYY or MM.DD.YYYY -> Normalize to DE
+                m = re.match(r'^(\d{1,2})\.(\d{4})$', s)
+                if m: return f"{m.group(1).zfill(2)}.{m.group(2)}"
+                
+                # Clean up multiple dots
+                s = re.sub(r'\.+', '.', s)
+                
             elif country.lower() == "japan":
-                # ISO YYYY-MM-DD -> YYYY.MM.DD
-                m = re.match(r'^(\d{4})[.-](\d{2})[.-](\d{2})$', s)
+                # ISO YYYY.MM.DD -> YYYY.MM.DD
+                m = re.match(r'^(\d{4})\.(\d{2})\.(\d{2})$', s)
                 if m: return f"{m.group(1)}.{m.group(2)}.{m.group(3)}"
-        except:
-            pass
+                
+                # ISO YYYY.MM -> YYYY.MM
+                m = re.match(r'^(\d{4})\.(\d{2})$', s)
+                if m: return f"{m.group(1)}.{m.group(2)}"
+        except Exception as e:
+            logger.warning(f"Date formatting failed for '{date_str}': {e}")
         return s
 
 # Global singleton instance
 ai_service = AIService()
-
