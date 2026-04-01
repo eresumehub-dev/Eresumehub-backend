@@ -1836,13 +1836,17 @@ Return a comprehensive resume that fills about one page of content.
             if new_certifications:
                 cleaned_data["certifications"] = new_certifications
             
-            if generated_content.get("self_pr"):
-                cleaned_data["self_pr"] = generated_content.get("self_pr")
-                if country.lower() == "japan":
+            if country.lower() == 'japan':
+                if generated_content.get("self_pr"):
+                    cleaned_data["self_pr"] = generated_content.get("self_pr")
                     cleaned_data["professional_summary"] = generated_content.get("self_pr")
-
-            if generated_content.get("motivation"):
-                cleaned_data["motivation"] = generated_content.get("motivation")
+                if generated_content.get("motivation"):
+                    cleaned_data["motivation"] = generated_content.get("motivation")
+            else:
+                # Explicitly strip Japanese schema fields to prevent ghost persistence 
+                # from previously broken generations in the database
+                cleaned_data.pop("self_pr", None)
+                cleaned_data.pop("motivation", None)
 
             # --- [NEW] Base64 Photo Embedding ---
             if cleaned_data.get("profile_pic_url"):
