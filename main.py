@@ -8,7 +8,6 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, EmailStr, field_validator as validator
 from dotenv import load_dotenv
-import httpx
 import os
 import io
 import json
@@ -26,7 +25,6 @@ from contextlib import asynccontextmanager
 from functools import lru_cache
 
 
-from tenacity import retry, stop_after_attempt, wait_exponential
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -36,6 +34,19 @@ from jinja2 import Environment, FileSystemLoader
 from xhtml2pdf import pisa
 
 # Services
+from services.supabase_service import supabase_service
+from services.profile_service import ProfileService
+from services.ai_service import ai_service
+from services.rag_service import RAGService
+from services.analytics_service import AnalyticsService
+from routes.auth import router as auth_router
+from routes.schema_router import router as schema_router
+from routes.analytics_router import router as analytics_router
+from routes.profile_router import router as profile_router
+from utils.supabase_client import supabase
+from utils.file_processor import FileProcessor
+from utils.resume_validator import ResumeComplianceValidator
+from services.resume_autocorrect import resume_autocorrect
 from services.rag_rule_loader import rag_rule_loader
 from services.resume_pipeline import ResumePipeline
 from utils.pdf_utils import html_to_pdf
@@ -588,121 +599,24 @@ async def enhance_resume_endpoint(
     user_id: str = Depends(get_current_user_id)
 ):
     """Trigger AI Enhancement (Strategist) on an existing resume"""
+    request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
+    user_id = user["platform_user_id"]
+    
     try:
-        # 1. Fetch Resume
-        resume = await asyncio.wait_for(
-            supabase_service.get_resume(resume_id),
-            timeout=5.0
-        )
-        if not resume or resume.get("user_id") != user_id:
-            raise HTTPException(status_code=403, detail="Not authorized")
-
-        # 2. Prepare Context (MERGE FRESH PROFILE DATA)
-        # Fetch latest profile to ensure DOB/Nationality/Address are current
-        user_profile = await supabase_service.get_user_by_id(user_id)
+        pipeline = ResumePipeline(request_id, profile_service)
+        result = await pipeline.run_enhancement(user_id, resume_id)
         
-        current_data = resume.get("resume_data", {})
-        
-        # Merge Identity Fields if present in Profile but missing in Resume
-        if user_profile:
-            current_data["date_of_birth"] = user_profile.get("date_of_birth") or current_data.get("date_of_birth")
-            current_data["nationality"] = user_profile.get("nationality") or current_data.get("nationality")
-            current_data["street_address"] = user_profile.get("street_address") or current_data.get("street_address")
-            current_data["postal_code"] = user_profile.get("postal_code") or current_data.get("postal_code")
-            # Ensure contact city/country are synced if possible, but respect resume overrides
-        
-        job_description = resume.get("job_description", "")
-        country = resume.get("country", "Germany")
-        language = resume.get("language", "English")
-        title = resume.get("title", current_data.get("job_title", "Professional"))
+        return {"success": True, "data": result}
 
-        logger.info(f"Enhancing resume {resume_id} for {title} in {country}")
-
-        # --- VALIDATION STEP ---
-        validation = ResumeComplianceValidator.validate(current_data, country)
-        if not validation["valid"]:
-            # We can either block or warn. 
-            # For "compliance warning", sending back a 400 with details is standard 
-            # if the frontend is set up to display them.
-            # Assuming we want to BLOCK generation of invalid resumes for now to force compliance:
-            error_messages = [e["message"] for e in validation["errors"]]
-            raise HTTPException(
-                status_code=400, 
-                detail={
-                    "message": "Resume compliance checks failed.",
-                    "errors": validation["errors"],
-                    "summary": " | ".join(error_messages)
-                }
-            )
-
-        # 3. Request AI Generation (Step 2 Logic)
-        generation_result = await ai_service.generate_tailored_resume(
-            user_data=current_data,
-            job_description=job_description,
-            country=country,
-            language=language,
-            job_title=title
-        )
-
-        if not generation_result.get("success"):
-            raise HTTPException(status_code=500, detail=f"AI Enhancement Failed: {generation_result.get('error')}")
-
-        # 4. Merge Results (Step 3 Logic)
-        resume_text = generation_result["resume_content"]
-        clean_summary = generation_result.get("generated_summary", "")
-        spun_data = generation_result.get("spun_data", {})
-
-        updated_data = {
-            **current_data,
-            "summary_text": resume_text,
-            "professional_summary": clean_summary,
-            "work_experiences": spun_data.get("work_experiences") or current_data.get("work_experiences", []),
-            "skills": spun_data.get("skills") or current_data.get("skills", []),
-            "educations": spun_data.get("educations") or current_data.get("educations", []),
-            "projects": spun_data.get("projects") or current_data.get("projects", []),
-            "headline": spun_data.get("headline") or current_data.get("headline", ""),
-            "languages": spun_data.get("languages") or current_data.get("languages", []),
-            "certifications": spun_data.get("certifications") or current_data.get("certifications", []),
-            "links": spun_data.get("links") or current_data.get("links", []),
-            "audit_log": generation_result.get("audit_log", {})
-        }
-
-        # 5. Regenerate HTML & PDF
-        rag_data = RAGService.get_complete_rag(country, language)
-        
-        html_content = HTMLGenerator.generate_html(
-            text=resume_text,
-            full_name=updated_data.get("full_name", "Candidate"),
-            contact_info=updated_data.get("contact", {}),
-            user_data=updated_data,
-            rag_data=rag_data,
-            template_style=resume.get("template_style", "professional")
-        )
-        
-        # FIX: Offload CPU-bound PDF generation to threadpool
-        pdf_bytes = await run_in_threadpool(html_to_pdf, html_content)
-        
-        # 6. Upload & Save
-        filename = f"{resume.get('slug')}.pdf"
-        await supabase_service.upload_resume_pdf(user.get("id") or user["platform_user_id"], resume_id, pdf_bytes, filename)
-        
-        # 7. Update DB
-        update_payload = {
-            "resume_data": updated_data,
-            "pdf_file_size": len(pdf_bytes),
-            "pdf_url": f"/api/v1/resume/{resume_id}/pdf" 
-        }
-        
-        updated_resume = await supabase_service.update_resume(resume_id, update_payload)
-        
-        return {"success": True, "data": updated_resume}
-
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.exception(f"Enhancement failed: {str(e)}")
+        logger.exception(f"[{request_id}] Enhancement failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.patch("/api/v1/resumes/{resume_id}", tags=["Resumes"])
 async def update_resume(
+    request: Request,
     resume_id: str, 
     data: dict, 
     background_tasks: BackgroundTasks,
@@ -710,35 +624,31 @@ async def update_resume(
 ):
     """Update resume metadata or content (triggers PDF regeneration and ATS scoring)"""
     from services.resume_service import resume_service
+    request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
+    user_id = user["platform_user_id"]
     
     try:
         # 1. Verify access
-        resume = await asyncio.wait_for(
-            supabase_service.get_resume(resume_id),
-            timeout=5.0
-        )
+        resume = await supabase_service.get_resume(resume_id)
         if not resume:
             raise HTTPException(status_code=404, detail="Resume not found")
         
-        # Check if user owns this resume (either ID matches)
+        # Check if user owns this resume
         if resume.get("user_id") not in [user["platform_user_id"], user["auth_user_id"]]:
             raise HTTPException(status_code=403, detail="Not authorized")
             
         # 2. Update database
-        logger.info(f"Updating resume {resume_id}...")
+        logger.info(f"[{request_id}] Updating resume {resume_id}...")
         regenerate = data.pop("regenerate_pdf", True)
-        updated_resume = await asyncio.wait_for(
-            supabase_service.update_resume(resume_id, data),
-            timeout=10.0
-        )
+        updated_resume = await supabase_service.update_resume(resume_id, data)
         
-        # 3. Regenerate PDF if content (resume_data) was changed
+        # 3. Regenerate PDF if content was changed
         if regenerate and ("resume_data" in data or "template_style" in data or "title" in data):
-            logger.info(f"Regenerating PDF for updated resume {resume_id}...")
+            logger.info(f"[{request_id}] Regenerating PDF for updated resume {resume_id}...")
             current_resume = updated_resume or resume
             r_data = current_resume.get("resume_data", {})
             
-            # Generate HTML
+            # Use utility abstractions instead of raw logic
             rag_data = RAGService.get_complete_rag(
                 current_resume.get("country", "Germany"), 
                 current_resume.get("language", "English")
@@ -929,9 +839,9 @@ async def set_default_resume_endpoint(
 
 @app.post("/api/v1/resume/create", tags=["Resumes"])
 async def create_new_resume(
-    data: dict,
-    user: Dict[str, Any] = Depends(get_current_user_ids),
-    request: Request = None
+    request: Request,
+    data: CreateResumeRequest,
+    user: Dict[str, Any] = Depends(get_current_user_ids)
 ):
     """Create a new resume with AI content generation using the ResumePipeline"""
     user_id = user["platform_user_id"]
@@ -940,39 +850,25 @@ async def create_new_resume(
     try:
         # Check Debounce
         if user_id in ai_request_debounce_cache:
+            logger.warning(f"[{request_id}] Debounce triggered for user {user_id}")
             raise HTTPException(status_code=429, detail="Request already in progress.")
         
         ai_request_debounce_cache[user_id] = True
 
+        # Call the new architected pipeline!
+        pipeline = ResumePipeline(request_id, profile_service)
+        result = await pipeline.run(user, data.model_dump())
+        
+        return {"success": True, "data": result}
 
+    except HTTPException:
+        raise
     except Exception as e:
-        # Clear debounce on all errors
-        if user_id in ai_request_debounce_cache:
-            del ai_request_debounce_cache[user_id]
-        # KEY VARIANCE: Log traceback for "Blind" debugging
-        import traceback
-        logger.error(f"Tailoring Engine Failed: {str(e)}")
-        
-        # SNAPSHOT: Capture the raw context if possible
-        try:
-             # Try to dump the simple context
-             context_snapshot = {
-                "user_id": user_id,
-                "job_title": resume_payload["title"] if "resume_payload" in locals() else "unknown",
-                "request_data_keys": list(data.keys()) if "data" in locals() else []
-             }
-             logger.error(f"ENGINE_INPUT_DUMP: {json.dumps(context_snapshot)}")
-        except:
-             pass
-
-        logger.error(traceback.format_exc()) # CRITICAL DEBUG LINE
-        
+        logger.exception(f"[{request_id}] Resume creation failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-    
     finally:
-        # Final safety to ensure debounce is eventually cleared
-        # In a real app, TTL handles this, but we can be proactive
-        pass
+        # CRITICAL FIX: Guarantee debounce clearance 
+        ai_request_debounce_cache.pop(user_id, None)
 
 @app.get("/api/v1/resume/{resume_id}/pdf", tags=["Resumes"])
 async def download_resume_pdf(
@@ -1141,6 +1037,17 @@ class ResumeRequest(BaseModel):
     language: str = "English"
     user_data: Optional[UserData] = None
     template_style: Optional[str] = Field("executive", pattern=r'^(professional|modern|minimal|creative|vibrant|executive)$')
+
+class CreateResumeRequest(BaseModel):
+    user_data: Optional[Dict[str, Any]] = None
+    job_description: Optional[str] = None
+    job_title: Optional[str] = None
+    country: str = "Germany"
+    language: str = "English"
+    template_style: str = "professional"
+    slug: Optional[str] = None
+    skip_compliance: bool = False
+    skip_enhancement: bool = False
 
 class JobMatchRequest(BaseModel):
     user_data: Dict[str, Any]

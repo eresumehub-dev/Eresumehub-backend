@@ -25,7 +25,15 @@ class ResumePipeline:
     def __init__(self, request_id: str, profile_service: ProfileService):
         self.request_id = request_id
         self.profile_service = profile_service
-        self.logger = logger # Could be a child logger with request_id
+        self.logger = logger
+
+    @staticmethod
+    async def run_for_user(request_id: str, profile_service: ProfileService, user: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Static entry point for the pipeline.
+        """
+        pipeline = ResumePipeline(request_id, profile_service)
+        return await pipeline.run(user, data)
 
     async def run(self, user: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -142,6 +150,7 @@ class ResumePipeline:
         pdf_url = await supabase_service.upload_resume_pdf(user_id, resume_id, pdf_bytes, filename)
 
         # Final Update with URL and ATS Score (Step 5)
+        self.logger.info(f"[{self.request_id}] Calculating ATS Score...")
         analysis = await ai_service.analyze_resume(resume_content, job_title, country, job_description)
         enriched_data["score"] = analysis.get("score", 0)
 
@@ -159,7 +168,94 @@ class ResumePipeline:
             action="RESUME_PIPELINE_COMPLETE",
             entity_type="resume",
             entity_id=resume_id,
-            new_data={"request_id": self.request_id}
+            new_data={"request_id": self.request_id, "score": enriched_data["score"]}
+        )
+        self.logger.info(f"[{self.request_id}] Pipeline complete for resume {resume_id}")
+
+    async def run_enhancement(self, user_id: str, resume_id: str) -> Dict[str, Any]:
+        """
+        Execute the pipeline for an existing resume enhancement.
+        """
+        # 1. Fetch Existing State
+        self.logger.info(f"[{self.request_id}] Starting Enhancement Pipeline for resume {resume_id}")
+        resume = await supabase_service.get_resume(resume_id)
+        if not resume or resume.get("user_id") not in [user_id]:
+             # Double check auth_user_id if needed, but usually platform_user_id is the key
+             raise HTTPException(status_code=403, detail="Not authorized to enhance this resume")
+
+        current_data = resume.get("resume_data", {})
+        job_description = resume.get("job_description", "")
+        country = resume.get("country", "Germany")
+        language = resume.get("language", "English")
+        title = resume.get("title", current_data.get("job_title", "Professional"))
+
+        # 2. Compliance Validation
+        validation = ResumeComplianceValidator.validate(current_data, country)
+        if not validation["valid"]:
+            raise HTTPException(status_code=400, detail={"code": "COMPLIANCE_ERROR", "errors": validation["errors"]})
+
+        # 3. AI Orchestration (Same logic as run)
+        generation_result = await ai_service.generate_tailored_resume(
+            user_data=current_data,
+            job_description=job_description,
+            country=country,
+            language=language,
+            job_title=title
         )
 
+        if not generation_result.get("success"):
+            raise HTTPException(status_code=500, detail=f"Enhancement failed: {generation_result.get('error')}")
+
+        # 4. Merge & Post-Process
+        resume_content = generation_result["resume_content"]
+        spun_data = generation_result.get("spun_data", {})
+        clean_summary = generation_result.get("generated_summary", "")
+
+        updated_data = {
+            **current_data,
+            "summary_text": resume_content,
+            "professional_summary": clean_summary,
+            "work_experiences": spun_data.get("work_experiences") or current_data.get("work_experiences", []),
+            "skills": spun_data.get("skills") or current_data.get("skills", []),
+            "educations": spun_data.get("educations") or current_data.get("educations", []),
+            "projects": spun_data.get("projects") or current_data.get("projects", []),
+            "headline": spun_data.get("headline", ""),
+            "certifications": spun_data.get("certifications") or current_data.get("certifications", []),
+            "audit_log": generation_result.get("audit_log", {})
+        }
+
+        # Apply Reliability Layer
+        updated_data = resume_autocorrect.autocorrect_for_country(updated_data, country)
+
+        # 5. PDF Rendering
+        rag_data = RAGService.get_complete_rag(country, language)
+        html_content = HTMLGenerator.generate_html(
+            text=resume_content,
+            full_name=updated_data.get("full_name", "Candidate"),
+            contact_info=updated_data.get("contact", {}),
+            user_data=updated_data,
+            rag_data=rag_data,
+            template_style=resume.get("template_style", "professional")
+        )
+
+        pdf_bytes = await run_in_threadpool(html_to_pdf, html_content)
+
+        # 6. Persistence & Scoring
+        filename = f"{resume.get('slug')}.pdf"
+        pdf_url = await supabase_service.upload_resume_pdf(user_id, resume_id, pdf_bytes, filename)
+
+        # Score it
+        analysis = await ai_service.analyze_resume(resume_content, title, country, job_description)
+        updated_data["score"] = analysis.get("score", 0)
+
+        update_payload = {
+            "resume_data": updated_data,
+            "pdf_url": f"/api/v1/resume/{resume_id}/pdf",
+            "pdf_file_size": len(pdf_bytes)
+        }
+        
+        final_resume = await supabase_service.update_resume(resume_id, update_payload)
+
+        # 7. Logging
+        self.logger.info(f"[{self.request_id}] Enhancement complete for {resume_id}")
         return final_resume or resume
