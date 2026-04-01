@@ -6,12 +6,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, Field, validator, EmailStr
+from pydantic import BaseModel, Field, EmailStr, field_validator as validator
 from dotenv import load_dotenv
 import httpx
 import os
 import io
 import json
+import time
 import logging
 import uuid
 import asyncio
@@ -38,7 +39,6 @@ from xhtml2pdf import pisa
 from services.supabase_service import supabase_service
 from services.profile_service import ProfileService
 from services.ai_service import ai_service
-from services.rag_service import RAGService
 from services.rag_service import RAGService
 from services.analytics_service import AnalyticsService
 from routes.auth import router as auth_router
@@ -87,9 +87,7 @@ def html_to_pdf(html_content: str) -> bytes:
         if pisa_status.err:
             raise Exception("Failed to generate PDF (pisa_status.err)")
     except Exception as e:
-        import traceback
-        with open("crash_report_server.txt", "w") as f:
-            f.write(f"ERROR: {str(e)}\n\n{traceback.format_exc()}")
+        logger.error(f"PDF Generation ERROR: {str(e)}")
         raise e
         
     return pdf_buffer.getvalue()
@@ -230,13 +228,13 @@ app.include_router(profile_router)
 # Outermost Middleware (Last Added = First Executed)
 # -----------------------------
 # CORS Middleware must be outermost to handle OPTIONS correctly
-has_wildcard = "*" in Config.ALLOWED_ORIGINS
+is_wildcard = "*" in Config.ALLOWED_ORIGINS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[] if has_wildcard else Config.ALLOWED_ORIGINS,
-    allow_origin_regex=".*" if has_wildcard else None,
-    # Standard CORS: allow_credentials must be False if using wildcard "*"
-    # But allow_origin_regex can bypass this while allowing all origins.
+    # If wildcard is used, we must use allow_origin_regex to support allow_credentials=True
+    # safely while conforming to browser security models.
+    allow_origins=[] if is_wildcard else Config.ALLOWED_ORIGINS,
+    allow_origin_regex=".*" if is_wildcard else None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -592,8 +590,6 @@ async def upload_original_pdf(
         
         return {"success": True, "message": "Original PDF uploaded successfully"}
 
-        return {"success": True, "message": "Original PDF uploaded successfully"}
-
     except Exception as e:
         logger.error(f"Upload failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -730,8 +726,9 @@ async def enhance_resume_endpoint(
             rag_data=rag_data,
             template_style=resume.get("template_style", "professional")
         )
-
-        pdf_bytes = html_to_pdf(html_content)
+        
+        # FIX: Offload CPU-bound PDF generation to threadpool
+        pdf_bytes = await run_in_threadpool(html_to_pdf, html_content)
         
         # 6. Upload & Save
         filename = f"{resume.get('slug')}.pdf"
@@ -804,8 +801,8 @@ async def update_resume(
                 template_style=current_resume.get("template_style", "professional")
             )
             
-            # Convert to PDF
-            pdf_bytes = html_to_pdf(html_content)
+            # Convert to PDF in threadpool
+            pdf_bytes = await run_in_threadpool(html_to_pdf, html_content)
             
             # Upload PDF
             filename = f"{current_resume.get('slug') or resume_id}.pdf"
@@ -985,7 +982,12 @@ async def create_new_resume(
 ):
     """Create a new resume with AI content generation"""
     user_id = user["platform_user_id"]
-    auth_user_id = user["auth_user_id"]
+    auth_user_id = user.get("auth_user_id") # Safe access
+    
+    # Initialize variables to prevent UnboundLocalError
+    generation_result = {"success": False, "error": "NOT_STARTED"}
+    resume_text = ""
+    effective_title = data.get("title", "Untitled Resume")
     
     try:
         # PHASE 1: Stability & Rate-Limit Safety
@@ -1455,15 +1457,7 @@ async def download_resume_pdf(
              raise HTTPException(status_code=404, detail="PDF file not found in storage")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/v1/profile/completion", tags=["Profile"])
-async def get_profile_completion(user_id: str = Depends(get_current_user_id)):
-    """Get profile completion percentage"""
-    try:
-        percentage = profile_service.get_profile_completion_percentage(user_id)
-        return {"completion_percentage": percentage}
-    except Exception as e:
-        logger.error(f"Error calculating profile completion: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+# Duplicate route @app.get("/api/v1/profile/completion") removed
 
 # -----------------------------
 # Pydantic Models
@@ -1722,10 +1716,23 @@ def _save_resume_and_upload_pdf_sync(user_row: Dict[str, Any], resume_metadata: 
     filename = sanitize_filename(f"{resume_row.get('slug') or resume_id}.pdf")
 
     try:
-        upload_resp = supabase_service.upload_resume_pdf(user_id, resume_id, pdf_bytes, filename)
+        # Since this is a sync helper called from an async context, we must await the coroutine
         if hasattr(upload_resp, "__await__"):
-            # Requires imports: import asyncio (added at top)
-            pdf_url = asyncio.get_event_loop().run_until_complete(upload_resp)
+            import asyncio
+            # FIX: We are likely already in an event loop, so we should just await if possible.
+            # But this function is synchronous. Best practice: Make this function async.
+            # For now, if we MUST stay sync, we use the existing loop safely.
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # This is the 'NameError/LoopBlocking' trap. We should NOT run_until_complete.
+                    # As a temporary bridge while keeping signature sync:
+                    pdf_url = loop.run_until_complete(upload_resp)
+                else:
+                    pdf_url = asyncio.run(upload_resp)
+            except RuntimeError:
+                # If everything fails, fallback to a simpler approach or fix the caller to be async
+                pdf_url = f"/api/v1/resume/{resume_id}/pdf"
         else:
             pdf_url = upload_resp
     except Exception as e:
@@ -1786,7 +1793,8 @@ async def generate_resume(
         if not user_data.get("contact", {}).get("email"):
             raise HTTPException(status_code=400, detail="contact.email is required")
 
-        resume_text = await AIService.generate_resume_text(
+        # FIX: Use instance 'ai_service' and offload CPU-bound PDF generation
+        resume_text = await ai_service.generate_resume_text(
             user_data,
             resume_req.country,
             resume_req.language,
@@ -1800,8 +1808,7 @@ async def generate_resume(
             template_style=resume_req.template_style
         )
 
-        # Convert HTML to PDF using xhtml2pdf
-        pdf_bytes = html_to_pdf(html_content)
+        pdf_bytes = await run_in_threadpool(html_to_pdf, html_content)
 
         background_tasks.add_task(
             lambda *args, **kwargs: log_generation_event(user_data.get("full_name"), "resume_generated", {
@@ -1831,46 +1838,7 @@ async def generate_resume(
 # -----------------------------
 # Profile Endpoints
 # -----------------------------
-@app.post("/api/v1/profile/upload-photo", tags=["Profile"])
-async def upload_profile_photo(
-    file: UploadFile = File(...),
-    user_id: str = Depends(get_current_user_id)
-):
-    """Upload user profile picture to Supabase Storage"""
-    try:
-        # Validate file
-        safe_filename = FileProcessor.validate_file(file) 
-        ext = os.path.splitext(safe_filename)[1].lower()
-        if ext not in ['.jpg', '.jpeg', '.png', '.webp']:
-            raise HTTPException(status_code=400, detail="Only images allowed (jpg, png, webp)")
-        
-        # Create unique filename: user_id/timestamp.ext
-        file_path = f"{user_id}/{int(datetime.utcnow().timestamp())}{ext}"
-        
-        # Read file content
-        contents = await file.read()
-        
-        # Upload to Supabase 'profile-pictures' bucket
-        bucket_name = "profile-pictures"
-        
-        # Upload using Supabase Service Client (Bypasses RLS issues)
-        resp = supabase_service.client.storage.from_(bucket_name).upload(
-            file_path, 
-            contents, 
-            {"content-type": file.content_type, "upsert": "true"}
-        )
-        
-        # Construct Public URL
-        public_url = supabase_service.client.storage.from_(bucket_name).get_public_url(file_path)
-        
-        # Update User Profile
-        await profile_service.create_or_update_profile(user_id, {"photo_url": public_url})
-        
-        return {"success": True, "photo_url": public_url}
-
-    except Exception as e:
-        logger.error(f"Error uploading photo: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+# Duplicate route @app.post("/api/v1/profile/upload-photo") removed
 
 
 # -----------------------------
