@@ -1580,6 +1580,11 @@ Return a comprehensive resume that fills about one page of content.
         nat_lock = user_data.get('nationality', '')
         addr_lock = f"{user_data.get('street_address', '')}, {user_data.get('postal_code', '')} {user_data.get('city', '')}".strip(', ')
         
+        # Country-specific conditional variables
+        japan_fields = '"self_pr": "Japan only...",\n            "motivation": "Japan only...",\n            ' if country.lower() == 'japan' else ''
+        japan_specific_instructions = '- GENERATE a robust Japanese "Self-PR" (自己PR) AND a "Motivation" (志望動機) section. Follow the standard order: Info -> Edu -> Exp -> Certs -> Skills -> Self-PR -> Motivation. CRITICAL: If the candidate profile ALREADY contains "motivation" or "self_pr", DO NOT overwrite them with new content. Instead, use the existing text provided by the user (you may reformat it for nominal style/pronoun removal but MUST keep the core message). Only generate NEW content if these fields are empty.' if country.lower() == 'japan' else ''
+        no_pronoun_rule = f'- **NO PRONOUNS**: You are FORBIDDEN from using "I", "me", "my", "we", "us", or "our" in the {country} version.' if country.lower() != 'japan' else ''
+
         task_instruction = f"""
         CRITICAL INSTRUCTION [IDENTITY LOCK]:
         - TARGET ROLE: {job_title}
