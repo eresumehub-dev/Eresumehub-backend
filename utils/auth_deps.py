@@ -67,6 +67,19 @@ async def get_current_user_from_token(
                     if update_resp.data:
                         user_row = update_resp.data[0]
             
+            # 1b. USERNAME FALLBACK (Identity Fusion): Check by username if no email match
+            if not user_row:
+                base_username = user_metadata.get("username") or user_email.split("@")[0]
+                if base_username:
+                    user_resp = await client.table("users").select("*").eq("username", base_username).limit(1).execute()
+                    if user_resp.data:
+                        existing_user = user_resp.data[0]
+                        logger.info(f"IDENTITY FUSION: Found existing account by username '{base_username}'. Merging {user_email} (ID: {auth_user_id}) into it.")
+                        # Link this account to the new Auth ID
+                        update_resp = await client.table("users").update({"auth_user_id": auth_user_id, "email": user_email}).eq("id", existing_user["id"]).execute()
+                        if update_resp.data:
+                            user_row = update_resp.data[0]
+            
             # 2. CREATE NEW USER (if not linked)
             if not user_row:
                 logger.info(f"Auto-creating user in public.users table for auth_user_id: {auth_user_id}")

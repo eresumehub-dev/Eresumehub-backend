@@ -306,7 +306,7 @@
         <!-- Section: Self-PR -->
         {% if user_data.self_pr or user_data.professional_summary %}
         <section>
-            <h2>{{ rag_data.section_headings.self_pr|default('Self-PR (自己PR)') }}</h2>
+            <div class="section-title">{{ rag_data.get('language_template', {}).get('section_headings', {}).get('summary', rag_data.get('language_template', {}).get('section_headings', {}).get('self_pr', 'Professional Summary')) }}</div>
             <div class="summary-text">
                 {{ user_data.self_pr or user_data.professional_summary }}
             </div>
@@ -316,7 +316,7 @@
         <!-- Section: Motivation -->
         {% if user_data.motivation %}
         <section>
-            <h2>{{ rag_data.section_headings.motivation|default('Motivation (志望動機)') }}</h2>
+            <h2>{{ rag_data.get('language_template', {}).get('section_headings', {}).get('motivation', 'Motivation') }}</h2>
             <div class="summary-text">
                 {{ user_data.motivation }}
             </div>

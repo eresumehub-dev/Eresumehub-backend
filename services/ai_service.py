@@ -465,9 +465,9 @@ class AIService:
         from services.ai_service import ai_service
         return await ai_service._call_api(prompt, temperature, max_tokens)
 
-    def _apply_ghost_protocol(self, text: str, job_title: str) -> str:
-        if not text:
-            return ""
+    def _apply_ghost_protocol(self, text: str, job_title: str, enabled: bool = False) -> str:
+        if not text or not enabled:
+            return text
         
         # Trigger for AI/ML and Automation roles - Use word boundaries
         import re
@@ -1652,6 +1652,15 @@ Return a comprehensive resume that fills about one page of content.
         TARGET ROLE: {job_title}
         TARGET JD: {job_description[:1200]}...
         
+        CURRENT PROFILE DATA:
+        {json.dumps(cleaned_data, indent=2, ensure_ascii=False)}
+        
+        INSTRUCTIONS:
+        1. Parse the TARGET JD to identify key required skills, experiences, and keywords.
+        2. Spin the CURRENT PROFILE DATA to highlight the most relevant points.
+           - Delete completely irrelevant experiences/skills to save space if needed.
+           - Quantify achievements if possible.
+           - FIX ANY COMPLIANCE ISSUES MENTIONED IN THE ATS REPORT.
            
         3. SUMMARY SECTION:
            - **MANDATORY**: Generate a BRAND NEW {summary_type} (3-4 lines).
@@ -1662,19 +1671,17 @@ Return a comprehensive resume that fills about one page of content.
         4. {country.upper()} FORMATTING (STRICT):
            - STRICTLY use the Date Format: {date_format} (VERY IMPORTANT for Japan: YYYY.MM.DD)
            - STRICTLY use the Section Headings provided in RAG.
-           {'- GENERATE a robust Japanese "Self-PR" (自己PR) AND a "Motivation" (志望動機) section. Follow the standard order: Info -> Edu -> Exp -> Certs -> Skills -> Self-PR -> Motivation. CRITICAL: If the candidate profile ALREADY contains "motivation" or "self_pr", DO NOT overwrite them with new content. Instead, use the existing text provided by the user (you may reformat it for nominal style/pronoun removal but MUST keep the core message). Only generate NEW content if these fields are empty.' if country.lower() == 'japan' else ''}
-           - **NO PRONOUNS**: You are FORBIDDEN from using "I", "me", "my", "we", "us", or "our" in the {country} version.
+           {japan_specific_instructions}
+           {no_pronoun_rule}
            - **LANGUAGE LEVELS**: For Japan, use JLPT levels for Japanese and TOEIC scores for English (e.g., "TOEIC 900+ equivalent").
         
         OUTPUT FORMAT:
         Return ONLY valid JSON with this exact structure (no markdown, no extra text).
         CRITICAL: Uses these EXACT JSON KEYS (do not translate keys, only translate values):
         {{
-            "professional_summary": "The new spun summary (Use as the main summary / 'Self-PR' for Japan)...",
+            "professional_summary": "The new spun summary...",
             "links": [{{"label": "Portfolio", "url": "https://..."}}, {{"label": "LinkedIn", "url": "..."}}],
-            "self_pr": "Japan only..." (or null),
-            "motivation": "Japan only: Why the candidate wants this specific role/company..." (or null),
-            "work_experiences": [
+            {japan_fields}"work_experiences": [
                 {{
                     "id": "ORIGINAL_ID_FROM_INPUT", // MUST INCLUDE original ID to map back to profile
                     "company": "Name",

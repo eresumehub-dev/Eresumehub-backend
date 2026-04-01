@@ -19,6 +19,7 @@ import re
 import hashlib
 from typing import List, Optional, Dict, Any, Union
 from uuid import uuid4
+from configurations.countries import get_country_context, COUNTRY_RULES
 from datetime import datetime
 from contextlib import asynccontextmanager
 from functools import lru_cache
@@ -434,9 +435,15 @@ async def improve_existing_resume(
         [METADATA END]
         """
         
+        # Get country-specific cultural context from RAG configurations
+        country_context = get_country_context(country)
+        
         # Use AI to improve resume with timeout
         improvement_prompt = f"""
         Improve this resume for a {country} job application.
+        
+        Country-Specific Rules:
+        {country_context}
         
         Original Resume Context:
         {meta_context}
@@ -448,10 +455,11 @@ async def improve_existing_resume(
         {job_description}
         
         Instructions:
-        1. Fix all ATS compatibility issues
-        2. Apply {country}-specific formatting and structure
-        3. Optimize keywords for the job description
-        4. Return ONLY the improved resume text in a clear, formatted professional layout.
+        1. Fix all ATS compatibility issues.
+        2. Apply {country}-specific formatting and structure (strictly follow the Country-Specific Rules above).
+        3. Optimize keywords specifically for the job description.
+        4. ABSOLUTE CONSTRAINT: DO NOT use Japanese formatting, 'Self-PR' sections, or Japanese characters unless the country is specifically JAPAN.
+        5. Return ONLY the improved resume text in a clear, formatted professional layout.
         """
         
         improved_text = await asyncio.wait_for(

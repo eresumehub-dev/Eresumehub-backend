@@ -109,7 +109,7 @@
     <!-- Summary Section -->
     {% if user_data.professional_summary or user_data.summary_text or user_data.summary %}
     <div class="section" style="margin-bottom: 15px;">
-        <div class="section-title">{{ rag_data.get('language_template', {}).get('section_headings', {}).get('self_pr', 'Professional Summary') }}</div>
+        <div class="section-title">{{ rag_data.get('language_template', {}).get('section_headings', {}).get('summary', rag_data.get('language_template', {}).get('section_headings', {}).get('self_pr', 'Professional Summary')) }}</div>
         <p style="margin-top: 5px;">{{ user_data.professional_summary or user_data.summary_text or user_data.summary }}</p>
     </div>
     {% endif %}
