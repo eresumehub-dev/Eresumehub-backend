@@ -36,61 +36,14 @@ from jinja2 import Environment, FileSystemLoader
 from xhtml2pdf import pisa
 
 # Services
-from services.supabase_service import supabase_service
-from services.profile_service import ProfileService
-from services.ai_service import ai_service
-from services.rag_service import RAGService
-from services.analytics_service import AnalyticsService
-from routes.auth import router as auth_router
-from routes.schema_router import router as schema_router
-from routes.analytics_router import router as analytics_router
-from routes.profile_router import router as profile_router
-from utils.supabase_client import supabase
-from utils.file_processor import FileProcessor
-from utils.resume_validator import ResumeComplianceValidator
-from services.resume_autocorrect import resume_autocorrect
 from services.rag_rule_loader import rag_rule_loader
+from services.resume_pipeline import ResumePipeline
+from utils.pdf_utils import html_to_pdf
+from utils.html_generator import HTMLGenerator
 
 # Initialize Profile Service
 profile_service = ProfileService(supabase_service)
 analytics_service = AnalyticsService(supabase_service)
-
-def html_to_pdf(html_content: str) -> bytes:
-    """Convert HTML string to PDF bytes using xhtml2pdf"""
-    # Character Sanitization for PDF rendering (xhtml2pdf lacks full Unicode support for default fonts)
-    # character sanitization for PDF (xhtml2pdf is picky)
-    def clean_text(t):
-        if not isinstance(t, str): return t
-        # Standard replacements
-        replacements = {
-            '\u2010': '-', '\u2011': '-', '\u2012': '-', '\u2013': '-', '\u2014': '--',
-            '\u2015': '--', '\u2017': '_', '\u2018': "'", '\u2019': "'", '\u201a': "'",
-            '\u201c': '"', '\u201d': '"', '\u201e': '"', '\u2022': '*', '\u2026': '...',
-            '\u00a0': ' ', '\xad': '-'
-        }
-        for char, rep in replacements.items():
-            t = t.replace(char, rep)
-        # Remove invisible characters that break xhtml2pdf kerning
-        t = "".join(char for char in t if ord(char) >= 32 or char in "\n\r\t")
-        return " ".join(t.split()) # Normalize whitespace gaps
-
-    # We apply this cleaning to the raw HTML content for safety
-    html_content = clean_text(html_content)
-
-    pdf_buffer = io.BytesIO()
-    try:
-        pisa_status = pisa.CreatePDF(
-            io.BytesIO(html_content.encode('utf-8')),
-            dest=pdf_buffer,
-            encoding='utf-8'
-        )
-        if pisa_status.err:
-            raise Exception("Failed to generate PDF (pisa_status.err)")
-    except Exception as e:
-        logger.error(f"PDF Generation ERROR: {str(e)}")
-        raise e
-        
-    return pdf_buffer.getvalue()
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -688,8 +641,7 @@ async def enhance_resume_endpoint(
             job_description=job_description,
             country=country,
             language=language,
-            job_title=title,
-            ats_report=current_data.get("ats_report")
+            job_title=title
         )
 
         if not generation_result.get("success"):
@@ -732,7 +684,7 @@ async def enhance_resume_endpoint(
         
         # 6. Upload & Save
         filename = f"{resume.get('slug')}.pdf"
-        await supabase_service.upload_resume_pdf(user_id, resume_id, pdf_bytes, filename)
+        await supabase_service.upload_resume_pdf(user.get("id") or user["platform_user_id"], resume_id, pdf_bytes, filename)
         
         # 7. Update DB
         update_payload = {
@@ -806,7 +758,7 @@ async def update_resume(
             
             # Upload PDF
             filename = f"{current_resume.get('slug') or resume_id}.pdf"
-            await supabase_service.upload_resume_pdf(user_id, resume_id, pdf_bytes, filename)
+            await supabase_service.upload_resume_pdf(user.get("id") or user["platform_user_id"], resume_id, pdf_bytes, filename)
             await supabase_service.update_resume(resume_id, {"pdf_file_size": len(pdf_bytes)})
             logger.info(f"PDF regeneration complete for {resume_id}")
             
@@ -978,361 +930,20 @@ async def set_default_resume_endpoint(
 @app.post("/api/v1/resume/create", tags=["Resumes"])
 async def create_new_resume(
     data: dict,
-    user: Dict[str, Any] = Depends(get_current_user_ids)
+    user: Dict[str, Any] = Depends(get_current_user_ids),
+    request: Request = None
 ):
-    """Create a new resume with AI content generation"""
+    """Create a new resume with AI content generation using the ResumePipeline"""
     user_id = user["platform_user_id"]
-    auth_user_id = user.get("auth_user_id") # Safe access
-    
-    # Initialize variables to prevent UnboundLocalError
-    generation_result = {"success": False, "error": "NOT_STARTED"}
-    resume_text = ""
-    effective_title = data.get("title", "Untitled Resume")
+    request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
     
     try:
-        # PHASE 1: Stability & Rate-Limit Safety
-        # 1a. Debounce (30s prevents double-submits)
+        # Check Debounce
         if user_id in ai_request_debounce_cache:
-            logger.warning(f"Debounce triggered for user {user_id}")
-            raise HTTPException(status_code=429, detail="Request already in progress. Please wait 30 seconds.")
+            raise HTTPException(status_code=429, detail="Request already in progress.")
         
-        # 1b. Cooldown (90s after infrastructure failure)
-        # if user_id in ai_service_cooldown_cache:
-        #     logger.warning(f"Cooldown active for user {user_id}")
-        #     raise HTTPException(status_code=503, detail="AI service is recovering. Please try again in a few moments.")
-
-        # Set debounce
         ai_request_debounce_cache[user_id] = True
 
-        # 1. Prepare user data context
-        logger.info(f"Received resume creation request for user {user_id} (auth: {auth_user_id})")
-        # 1. Fetch complete profile data to ensure all details are included
-        logger.info(f"Fetching complete profile for user {user_id} (auth: {auth_user_id})...")
-        db_profile = await profile_service.get_profile(auth_user_id)
-        
-        if not db_profile:
-            logger.info(f"Profile not found by auth_id, trying platform_id {user_id}")
-            db_profile = await profile_service.get_profile(user_id)
-            
-        # Merge request data with DB profile
-        # Source of truth is DB profile for rich content, but request can override/supplement
-        user_data = db_profile if db_profile else {}
-        request_user_data = data.get("user_data", {})
-        
-        # Ensure contact info is structured correctly for HTMLGenerator and AI
-        if "contact" not in user_data:
-            user_data["contact"] = {
-                "email": user_data.get("email", ""),
-                "phone": user_data.get("phone", ""),
-                "linkedin": user_data.get("linkedin_url", ""),
-                "city": user_data.get("city", "")
-            }
-        
-        # Merge basic overrides from request
-        if request_user_data:
-            # Explicit mapping for summary/professional_summary if needed
-            if "summary" in request_user_data and "professional_summary" not in request_user_data:
-                request_user_data["professional_summary"] = request_user_data["summary"]
-            
-            user_data.update(request_user_data)
-
-        # ---------------------------------------------------------
-        # COMPLIANCE VALIDATION (Phase 3 - German Market Gate)
-        # ---------------------------------------------------------
-        # ---------------------------------------------------------
-        # COMPLIANCE VALIDATION (Phase 3 - German Market Gate)
-        # ---------------------------------------------------------
-        country = data.get("country", db_profile.get("country", "Germany") if db_profile else "Germany")
-        
-        # Allow user to explicitly skip compliance check (User Override)
-        skip_compliance = data.get("skip_compliance", False)
-        
-        if not skip_compliance:
-            validation_result = ResumeComplianceValidator.validate(user_data, country)
-            if not validation_result["valid"]:
-                logger.warning(f"Compliance validation failed for user {user_id}: {validation_result['errors']}")
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "code": "COMPLIANCE_ERROR",
-                        "message": "Mandatory fields missing for this country.",
-                        "errors": validation_result["errors"]
-                    }
-                )
-        # ---------------------------------------------------------
-
-        # 2. Add Job Context if provided
-
-            # Re-ensure contact is structured if it was partially overridden
-            if "contact" in request_user_data:
-                user_data["contact"].update(request_user_data["contact"])
-        
-        # Log data summary for debugging
-        logger.info(f"User data for AI: Name={user_data.get('full_name')}, "
-                    f"Experiences={len(user_data.get('work_experiences', []))}, "
-                    f"Education={len(user_data.get('educations', []))}")
-        
-        # 2. Extract input data
-        job_description = data.get("job_description")
-        
-        # 3. Prepare resume payload structure
-        resume_payload = {
-            "title": data.get("title", "Untitled Resume"),
-            "resume_data": user_data,
-            "country": data.get("country", "Germany"),
-            "language": data.get("language", "English"),
-            "template_style": data.get("template_style", "professional"),
-            "slug": data.get("slug") or f"resume-{uuid.uuid4().hex[:8]}",
-            "job_description": job_description
-        }
-        
-        logger.info(f"Creating resume row: {resume_payload['slug']}")
-        # Step 1: Handle Job Title Authority
-        job_title = data.get("job_title") or request_user_data.get("job_title")
-        
-        # DEBUG: Log input decision
-        logger.info(f"Resume Creation - Job Title Input: '{job_title}' (Type: {type(job_title)})")
-        
-        # If job_title is provided in request, use it as the definitive resume title
-        if job_title and str(job_title).strip():
-            resume_payload["title"] = str(job_title).strip()
-            logger.info(f"Prioritizing User Job Title: {resume_payload['title']}")
-        elif not resume_payload.get("title") or resume_payload.get("title") == "Untitled Resume":
-            # Fallback to smart title only if no job_title provided
-            logger.info("No job_title provided, generating smart title...")
-            smart_title = await ai_service.generate_resume_title(user_data, job_description)
-            resume_payload["title"] = smart_title
-        
-        # Capture the effective title for analysis context
-        effective_title = resume_payload["title"]
-
-        # Check for skip flag (Direct Import Mode)
-        skip_enhancement = data.get("skip_enhancement", False)
-            
-        # STEP 2: Generate Resume Content
-        if skip_enhancement:
-            logger.info("Skipping AI enhancement (Direct Import Mode). Using raw user_data.")
-            tailored_data = resume_payload["resume_data"]
-            
-            # Step 2a: Set "resume_text" to the professional summary available in user_data
-            # We do NOT generate HTML here. Step 3b will handle HTML generation.
-            resume_text = tailored_data.get("professional_summary") or tailored_data.get("summary") or ""
-
-            # Step 2b: Mock the "generation_result" structure expected by downstream logic (Step 3)
-            # This prevents UnboundLocalError at line 1012
-            generation_result = {
-                "success": True,
-                "resume_content": resume_text,
-                "generated_summary": resume_text, # Use the raw summary
-                "spun_data": { # No spinning happened, so we can leave this empty or mirror user_data
-                    "work_experiences": tailored_data.get("work_experiences", []),
-                    "skills": tailored_data.get("skills", []),
-                    "educations": tailored_data.get("educations", []),
-                    "projects": tailored_data.get("projects", []),
-                    "headline": tailored_data.get("headline", ""),
-                    "languages": tailored_data.get("languages", []),
-                    "certifications": tailored_data.get("certifications", []),
-                    "links": tailored_data.get("links", [])
-                },
-                "audit_log": {
-                    "original_experience_count": len(tailored_data.get("work_experiences", [])),
-                    "transformations": ["Skipped (Direct Import)"]
-                }
-            }
-            logger.info("Direct Import Configured Successfully")
-
-        else:
-            # We pass the JD here so the AI can tailor the achievements
-            logger.info(f"Step 2: Generating AI resume content (Tailored to JD: {bool(job_description)})")
-            
-            try:
-                # CRITICAL: ALWAYS use the new Tailoring Engine (STEP A + STEP B)
-                # Even without a JD, we need STEP A to generate an isolated, scope-correct summary
-                logger.error("[MAIN] ENGAGING TAILORING ENGINE (STEP A + STEP B)")
-                logger.error(f"[MAIN] Job Description Provided: {bool(job_description and len(job_description.strip()) > 10)}")
-                
-                generation_result = await ai_service.generate_tailored_resume(
-                    user_data=resume_payload["resume_data"],
-                    job_description=job_description or "",  # Pass empty string if no JD
-                    country=resume_payload["country"],
-                    language=resume_payload["language"],
-                    job_title=effective_title # Use the effective title (user-provided or smart)
-                )
-            
-                if generation_result.get("success"):
-                    resume_text = generation_result["resume_content"]
-                    resume_payload["resume_data"]["audit_log"] = generation_result["audit_log"]
-                    logger.info("Tailoring Engine Success")
-                else:
-                    # CRITICAL: NO FALLBACK ALLOWED
-                    # "If the AI fails to generate... FAIL the resume generation"
-                    error_msg = generation_result.get("error", "Tailoring Engine failed")
-                    details = generation_result.get("details", "")
-                    logger.error(f"Tailoring Engine Failed: {error_msg} - {details}")
-                    
-                    if error_msg == "SUMMARY_GENERATION_FAILED":
-                        # Policy Violation -> 400
-                        await supabase_service.create_audit_log(
-                            user_id=user_id,
-                            action="RESUME_TAILORING_POLICY_FAILURE",
-                            new_data=generation_result.get("audit_log", {})
-                        )
-                        raise HTTPException(status_code=400, detail="Resume tailoring failed due to strict AI policy.")
-
-                    if error_msg == "SUMMARY_SCOPE_VIOLATION":
-                        # Scope Violation -> 400
-                        await supabase_service.create_audit_log(
-                            user_id=user_id,
-                            action="RESUME_TAILORING_SCOPE_FAILURE",
-                            new_data=generation_result.get("audit_log", {})
-                        )
-                        raise HTTPException(status_code=400, detail=f"Resume tailoring failed: Summary scope violation ({details})")
-                    
-                    if error_msg == "AI_SERVICE_UNAVAILABLE":
-                        # Infrastructure Failure -> 503
-                        await supabase_service.create_audit_log(
-                            user_id=user_id,
-                            action="RESUME_TAILORING_INFRA_FAILURE",
-                            new_data=generation_result.get("audit_log", {})
-                        )
-                        raise HTTPException(status_code=503, detail="AI service temporarily unavailable. Please retry.")
-
-                    raise HTTPException(status_code=500, detail=f"Resume Generation Failed: {error_msg}")
-
-            except HTTPException:
-                # Re-raise HTTP exceptions directly (e.g., 400 for policy, 503 for infra)
-                raise
-
-            except Exception as ai_err:
-                logger.exception(f"Step 2 FAILED: AI generation error: {ai_err}")
-                raise HTTPException(status_code=503, detail=f"AI Content Generation failed: {str(ai_err)}")
-            
-        if not resume_text or "Generation failed" in resume_text:
-            logger.error("Step 2 FAILED: AI returned failure message")
-            raise HTTPException(status_code=503, detail="AI Content Generation failed to produce valid content")
-            
-        # Create the resume entry in the database *after* AI content is generated
-        # This ensures we have the final title and content for the initial DB entry
-        resume = await supabase_service.create_resume(user_id, resume_payload)
-        resume_id = resume["id"]
-        logger.info(f"Resume row created with ID: {resume_id}")
-
-        # MERGED LOGIC MOVED UP
-        clean_summary = generation_result.get("generated_summary")
-        spun_data = generation_result.get("spun_data", {})
-
-        if not clean_summary:
-             logger.error("[MAIN] CRITICAL: generated_summary is MISSING from AI result. Using fallback.")
-             clean_summary = ""
-
-        updated_resume_data = {
-            **resume_payload["resume_data"], 
-            "summary_text": clean_summary, # FIX: Use clean summary instead of raw AI response to prevent duplicates
-            "professional_summary": clean_summary,
-            "work_experiences": spun_data["work_experiences"] if spun_data.get("work_experiences") is not None else resume_payload["resume_data"].get("work_experiences", []),
-            "projects": spun_data["projects"] if spun_data.get("projects") is not None else resume_payload["resume_data"].get("projects", []),
-            "skills": spun_data["skills"] if spun_data.get("skills") is not None else resume_payload["resume_data"].get("skills", []),
-            "educations": spun_data["educations"] if spun_data.get("educations") is not None else resume_payload["resume_data"].get("educations", []),
-            "certifications": spun_data.get("certifications") if spun_data.get("certifications") is not None else resume_payload["resume_data"].get("certifications", []),
-            "motivation": spun_data.get("motivation") if spun_data.get("motivation") is not None else resume_payload["resume_data"].get("motivation", ""),
-            "date_of_birth": spun_data.get("date_of_birth", resume_payload["resume_data"].get("date_of_birth")),
-            "contact": spun_data.get("contact", resume_payload["resume_data"].get("contact")),
-            # Fix Photo URL mismatch and pass Base64 fix
-            "profile_pic_url": resume_payload["resume_data"].get("photo_url") or resume_payload["resume_data"].get("profile_pic_url"),
-            "profile_pic_base64": spun_data.get("profile_pic_base64"),
-            "summary": None, # Kill legacy
-            "bio": None,     # Kill legacy
-            "score": 0 # Placeholder, updated later
-        }
-
-        # --- Reliability Layer: Auto-Correction ---
-        logger.info(f"Step 2c: Applying Reliability Layer (Auto-Correction) for {resume_payload['country']}...")
-        updated_resume_data = resume_autocorrect.autocorrect_for_country(
-            updated_resume_data, 
-            resume_payload["country"]
-        )
-
-        logger.info(f"Step 3a: Fetching RAG for {resume_payload['country']}...")
-        rag_data = RAGService.get_complete_rag(resume_payload["country"], resume_payload["language"])
-
-        logger.info(f"Step 3b: Generating HTML content...")
-        try:
-            html_content = HTMLGenerator.generate_html(
-                text=resume_text,
-                full_name=resume_payload["resume_data"].get("full_name", "Candidate"),
-                contact_info=resume_payload["resume_data"].get("contact", {}),
-                user_data=updated_resume_data, # <--- KEY FIX: Use UPDATED data
-                rag_data=rag_data,
-                template_style=resume_payload["template_style"]
-            )
-        except Exception as html_err:
-            logger.exception(f"HTML Generation Failed: {str(html_err)}")
-            raise html_err
-            
-        # 3c. PDF Generation (Soft-Fail)
-        logger.info(f"Step 3c: Converting HTML to PDF (xhtml2pdf)...")
-        pdf_bytes = None
-        try:
-            pdf_bytes = html_to_pdf(html_content)
-            logger.info(f"PDF generated for {resume_id} ({len(pdf_bytes)} bytes)")
-        except Exception as pdf_err:
-            logger.error(f"PDF Conversion Failed (Non-critical): {str(pdf_err)}")
-            # Do NOT raise, allow process to continue so user gets their resume draft
-            pdf_bytes = None
-
-        # 4. Upload PDF to Storage (Only if generated)
-        if pdf_bytes:
-            filename = f"{resume['slug']}.pdf"
-            logger.info(f"Uploading PDF to bucket resumes-pdf: {filename}")
-            try:
-                await supabase_service.upload_resume_pdf(user_id, resume_id, pdf_bytes, filename)
-            except Exception as upload_err:
-                logger.error(f"PDF Upload Failed: {upload_err}")
-            
-        # 5. Calculate Power Score using ATS analysis
-        logger.info(f"Calculating ATS Power Score for {resume_id}...")
-        try:
-            # Use ai_service to analyze the newly generated resume text
-            analysis = await ai_service.analyze_resume(
-                resume_text, 
-                effective_title, 
-                resume_payload["country"], 
-                job_description or ""
-            )
-            score = analysis.get("score", 70) 
-        except Exception as e:
-            logger.warning(f"ATS scoring failed for {resume_id}: {e}")
-            score = 0
-            
-        updated_resume_data["score"] = score # Update score finally
-        
-        update_payload = {
-            "resume_data": updated_resume_data,
-            "pdf_file_size": len(pdf_bytes) if pdf_bytes else 0
-        }
-        
-        # Only set URL if we actually generated a PDF
-        if pdf_bytes:
-            update_payload["pdf_url"] = f"/api/v1/resume/{resume_id}/pdf"
-            
-        updated_resume = await supabase_service.update_resume(resume_id, update_payload)
-        logger.info(f"Resume {resume_id} update complete.")
-        
-        # Persist success audit log
-        await supabase_service.create_audit_log(
-            user_id=user_id,
-            action="RESUME_TAILORING_SUCCESS",
-            entity_type="resume",
-            entity_id=resume_id,
-            new_data=resume_payload["resume_data"].get("audit_log", {})
-        )
-        
-        return {"success": True, "data": updated_resume or resume}
-    except HTTPException as http_err:
-        # Clear debounce on all errors (let cooldown handle infra blocks)
-        if user_id in ai_request_debounce_cache:
-            del ai_request_debounce_cache[user_id]
-        raise http_err
 
     except Exception as e:
         # Clear debounce on all errors
@@ -1519,6 +1130,7 @@ class UserData(BaseModel):
     ats_report: Optional[Dict[str, Any]] = None
 
     @validator('skills')
+    @classmethod
     def validate_skills(cls, v):
         if len(v) > 50:
             raise ValueError('Maximum 50 skills allowed')
@@ -1573,187 +1185,8 @@ async def verify_api_key(request: Request):
 # -----------------------------
 # HTML Generator
 # -----------------------------
-class HTMLGenerator:
-    _env = Environment(loader=FileSystemLoader("templates"))
-
-    @staticmethod
-    def generate_html(text: str, full_name: str, contact_info: dict, user_data: dict, rag_data: dict, template_style: str = "professional") -> str:
-        """
-        Generate HTML resume using Jinja2 templates and RAG data.
-        """
-        template_name = f"resume_{template_style}.jinja2"
-        
-        try:
-            template = HTMLGenerator._env.get_template(template_name)
-        except Exception as e:
-            logger.warning(f"Template '{template_name}' not found, falling back to professional. Error: {e}")
-            template = HTMLGenerator._env.get_template("resume_professional.jinja2")
-
-        # SANITIZATION: Clean text fields to prevent xhtml2pdf "word gaps" bug
-        def clean_field(t):
-            if not t or not isinstance(t, str): return t
-            return " ".join(t.split())
-
-        user_data["full_name"] = clean_field(user_data.get("full_name"))
-        if user_data.get("headline"):
-            user_data["headline"] = clean_field(user_data["headline"])
-
-        # SANITIZATION: Ensure data types are PDF-safe (xhtml2pdf is strict)
-        # 1. Ensure lists are actually lists (AI sometimes returns strings)
-        if user_data.get("work_experiences"):
-            for job in user_data["work_experiences"]:
-                if isinstance(job.get("description"), str):
-                     job["description"] = [job["description"]]
-                if isinstance(job.get("achievements"), str):
-                     job["achievements"] = [job["achievements"]]
-                # Ensure dates are strings
-                if job.get("start_date") and not isinstance(job.get("start_date"), str):
-                    job["start_date"] = str(job["start_date"])
-                if job.get("end_date") and not isinstance(job.get("end_date"), str):
-                    job["end_date"] = str(job["end_date"])
-
-        if user_data.get("projects"):
-             for proj in user_data["projects"]:
-                if isinstance(proj.get("description"), str):
-                     proj["description"] = proj["description"] # Description is usually a string in projects, KEEP IT
-                # But wait, the template handles string description: <p>{{ proj.description }}</p>
-                # Check technologies
-                if isinstance(proj.get("technologies"), str):
-                     proj["technologies"] = [t.strip() for t in proj["technologies"].split(",")]
-
-        # 2. Ensure skills is a list and sanitize
-        if isinstance(user_data.get("skills"), str):
-            user_data["skills"] = [s.strip() for s in user_data["skills"].split(",")]
-        
-        if user_data.get("skills"):
-            user_data["skills"] = [s for s in user_data["skills"] if isinstance(s, str) and not re.search(r'^https?://|^mailto:|@|\.com\b|\.in\b', s.lower())]
-
-        # 3. Sanitize languages
-        if user_data.get("languages") and isinstance(user_data["languages"], list):
-            sanitized_langs = []
-            for lang in user_data["languages"]:
-                if isinstance(lang, str):
-                    if re.search(r'^https?://|^mailto:|@|\.com\b|\.in\b', lang.lower()):
-                        continue
-                sanitized_langs.append(lang)
-            user_data["languages"] = sanitized_langs
-
-        # Ensure photo data is valid for PDF generator
-        if user_data.get("profile_pic_base64"):
-             # Base64 is reliable for PDF engines, so we prioritize it
-             logger.info("Using embedded Base64 photo for PDF generation.")
-        elif user_data.get("profile_pic_url"):
-             logger.info("Using remote photo URL (May fail in some PDF engines).")
-
-        # Render template with structured data and RAG knowledge
-        return template.render(
-            user_data=user_data,
-            rag_data=rag_data,
-            text=text,  # Kept for backward compat or raw text block use
-            full_name=full_name, # Redundant but safe
-            contact_info=contact_info # Redundant but safe
-        )
-
-
-# -----------------------------
-# Helper for background tasks
-# -----------------------------
-def log_generation_event(user_identifier: str, event_type: str, extra_data: dict = None):
-    """
-    Minimal placeholder for generation event logging used by background tasks.
-    """
-    try:
-        log_entry = {
-            "user": user_identifier,
-            "event": event_type,
-            "timestamp": datetime.utcnow().isoformat(),
-            "details": extra_data or {}
-        }
-        logger.info(f"[Generation Event] {log_entry}")
-    except Exception as e:
-        logger.error(f"Failed to log generation event: {e}")
-
-# -----------------------------
-# Save resume helper
-# -----------------------------
-def _save_resume_and_upload_pdf_sync(user_row: Dict[str, Any], resume_metadata: Dict[str, Any], pdf_bytes: bytes) -> Dict[str, Any]:
-    """
-    Uses methods from services.supabase_service to:
-      - create resume row
-      - upload pdf
-      - update resume row with pdf_url and file size
-    Returns final resume row (dict).
-    """
-    client = supabase_service.client
-    user_id = user_row.get("id")
-
-    try:
-        insert_resp = client.table("resumes").insert({
-            "user_id": user_id,
-            "slug": resume_metadata.get("slug"),
-            "title": resume_metadata.get("title") or f"{user_row.get('full_name','Resume')}",
-            "resume_data": resume_metadata.get("resume_data", {}),
-            "country": resume_metadata.get("country"),
-            "language": resume_metadata.get("language"),
-            "template_style": resume_metadata.get("template_style"),
-            "visibility": resume_metadata.get("visibility"),
-            "is_default": resume_metadata.get("is_default", False),
-            "created_at": datetime.utcnow().isoformat()
-        }).execute()
-        if isinstance(insert_resp, dict):
-            resume_row = insert_resp.get("data")[0] if insert_resp.get("data") else None
-        else:
-            resume_row = getattr(insert_resp, "data", None)
-            if isinstance(resume_row, list):
-                resume_row = resume_row[0] if resume_row else None
-        if not resume_row:
-            raise Exception("Failed to create resume row")
-    except Exception as e:
-        logger.exception(f"Failed to create resume row: {e}")
-        raise HTTPException(status_code=500, detail="Failed to create resume")
-
-    resume_id = resume_row.get("id")
-    filename = sanitize_filename(f"{resume_row.get('slug') or resume_id}.pdf")
-
-    try:
-        # Since this is a sync helper called from an async context, we must await the coroutine
-        if hasattr(upload_resp, "__await__"):
-            import asyncio
-            # FIX: We are likely already in an event loop, so we should just await if possible.
-            # But this function is synchronous. Best practice: Make this function async.
-            # For now, if we MUST stay sync, we use the existing loop safely.
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # This is the 'NameError/LoopBlocking' trap. We should NOT run_until_complete.
-                    # As a temporary bridge while keeping signature sync:
-                    pdf_url = loop.run_until_complete(upload_resp)
-                else:
-                    pdf_url = asyncio.run(upload_resp)
-            except RuntimeError:
-                # If everything fails, fallback to a simpler approach or fix the caller to be async
-                pdf_url = f"/api/v1/resume/{resume_id}/pdf"
-        else:
-            pdf_url = upload_resp
-    except Exception as e:
-        logger.exception(f"Failed to upload PDF: {e}")
-        try:
-            client.table("resumes").delete().eq("id", resume_id).execute()
-            logger.info("Rolled back resume row after upload failure")
-        except Exception:
-            logger.warning("Could not rollback resume row")
-        raise HTTPException(status_code=500, detail="Failed to upload PDF to storage")
-
-    try:
-        client.table("resumes").update({
-            "pdf_url": pdf_url,
-            "pdf_file_size": len(pdf_bytes)
-        }).eq("id", resume_id).execute()
-    except Exception as e:
-        logger.exception(f"Failed to update resume row with pdf_url: {e}")
-
-    resume_row.update({"pdf_url": pdf_url, "pdf_file_size": len(pdf_bytes)})
-    return resume_row
+# HTMLGenerator is now in utils/html_generator.py
+# End of Resume Helpers section
 
 @app.get("/api/v1/auth/check-username/{username}", tags=["Auth"])
 async def check_username_availability(username: str, request: Request):
@@ -1787,7 +1220,7 @@ async def generate_resume(
         if not resume_req.user_data:
             raise HTTPException(status_code=400, detail="user_data is required")
 
-        user_data = resume_req.user_data.dict()
+        user_data = resume_req.user_data.model_dump()
         if not user_data.get("full_name"):
             raise HTTPException(status_code=400, detail="full_name is required")
         if not user_data.get("contact", {}).get("email"):
