@@ -40,7 +40,6 @@ class Config:
                 return val
         
         # 2. Universal Probe: Scan all keys for any Redis-like URL
-        import os
         for key, val in os.environ.items():
             if "REDIS" in key.upper() and val and "://" in val:
                 return val
