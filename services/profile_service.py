@@ -142,6 +142,9 @@ class ProfileService:
                     
                     if field == 'date_of_birth' and val == "":
                         profile_payload[field] = None
+                    elif field in ['skills', 'languages', 'links'] and not isinstance(val, list):
+                        # Type Guard: Force list types (v6.1.0)
+                        profile_payload[field] = []
                     else:
                         profile_payload[field] = val
             
@@ -206,6 +209,13 @@ class ProfileService:
             # Prepare bulk insert payloads
             payloads = []
             for idx, exp in enumerate(experiences):
+                # Type Guard: Ensure achievements is a list (v6.1.0)
+                achievements = exp.get('achievements', [])
+                if isinstance(achievements, str):
+                    achievements = [achievements]
+                elif not isinstance(achievements, list):
+                    achievements = []
+
                 payloads.append({
                     'profile_id': profile_id,
                     'job_title': exp.get('job_title') or "Professional",

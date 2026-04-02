@@ -68,71 +68,81 @@ async def create_profile_from_resume(
 ):
     """Parse uploaded resume and create/update profile from it"""
     try:
-        # Parse resume
+        from app_settings import Config
+        import asyncio
+        
+        # Parse resume text
         safe_filename = FileProcessor.validate_file(file)
         ext = os.path.splitext(safe_filename)[1].lower()
         
-        if ext == '.pdf':
-            parsed_result = await FileProcessor.parse_pdf(file)
-            text = parsed_result.get("text", "")
-        elif ext == '.docx':
-            parsed_result = await FileProcessor.parse_docx(file)
-            text = parsed_result.get("text", "")
-        elif ext == '.txt':
-             content = await file.read()
-             text = content.decode('utf-8')
-        else:
-            raise HTTPException(status_code=400, detail="Unsupported file type")
+        try:
+            if ext == '.pdf':
+                parsed_result = await FileProcessor.parse_pdf(file)
+                text = parsed_result.get("text", "")
+            elif ext == '.docx':
+                parsed_result = await FileProcessor.parse_docx(file)
+                text = parsed_result.get("text", "")
+            else:
+                text = (await file.read()).decode('utf-8')
+        except Exception as parse_e:
+            logger.error(f"File parsing failed: {parse_e}")
+            raise HTTPException(status_code=400, detail="Could not read the uploaded file.")
+            
+        # 1. AI EXTRACTION with Timeout Safety (v6.1.0)
+        try:
+            structured_data = await asyncio.wait_for(
+                ai_service.extract_structured_data(text),
+                timeout=Config.AI_REQUEST_TIMEOUT 
+            )
+        except asyncio.TimeoutError:
+            logger.error(f"AI Extraction timed out for user {user_id}")
+            raise HTTPException(status_code=504, detail="AI extraction timed out. Please try again.")
         
-        # Extract structured data using AI (Corrected to use instance method)
-        structured_data = await ai_service.extract_structured_data(text)
-        
-        # SAFETY CHECK: If AI fails to return data, do NOT proceed (Prevents wiping profile)
+        # 2. SCHEMA TRANSFORMATION (Strict v6.1.0 logic)
         if not structured_data or not structured_data.get("full_name"):
-            logger.error(f"AI Extraction failed or returned empty results for user {user_id}")
+            logger.error(f"AI Extraction returned invalid data for user {user_id}: {structured_data}")
             raise HTTPException(
-                status_code=500, 
-                detail="AI failed to extract information from the resume. Profile was NOT cleared. Please try again or fill manually."
+                status_code=422, 
+                detail="AI could not find personal details in this file. Please ensure it is a valid resume."
             )
 
-        # Convert to profile format
+        # Map to platform profile schema
         profile_data = {
             "full_name": structured_data.get("full_name", ""),
             "headline": structured_data.get("headline", ""),
             "email": structured_data.get("email", ""),
             "phone": structured_data.get("phone", ""),
-            "city": structured_data.get("city", ""),
-            "country": structured_data.get("country", ""),
-            "street_address": structured_data.get("street_address", ""),
-            "postal_code": structured_data.get("postal_code", ""),
-            "nationality": structured_data.get("nationality", ""),
-            "date_of_birth": structured_data.get("date_of_birth", ""),
+            "city": structured_data.get("city", "Berlin"), # Default or AI extracted
+            "country": structured_data.get("country", "Germany"),
             "professional_summary": structured_data.get("summary", ""),
             "skills": structured_data.get("skills", []),
-            "work_experiences": structured_data.get("experience", []),
+            "work_experiences": structured_data.get("work_experiences") or structured_data.get("experience", []),
+            "educations": structured_data.get("educations") or structured_data.get("education", []),
             "projects": structured_data.get("projects", []),
-            "educations": structured_data.get("education", []),
             "certifications": structured_data.get("certifications", []),
-            "links": structured_data.get("links", []),
-            "languages": [
-                {"name": lang, "level": "Native"} if isinstance(lang, str) else lang 
-                for lang in structured_data.get("languages", [])
-            ]
+            "languages": structured_data.get("languages", [])
         }
         
-        # Create/update profile using the AI intelligent merge
-        profile = await profile_service.create_or_update_profile(user_id, profile_data, is_ai_import=True)
+        # 3. SERVICE PERSISTENCE (Safe v6.1.0 logic)
+        try:
+            profile = await asyncio.wait_for(
+                profile_service.create_or_update_profile(user_id, profile_data, is_ai_import=True),
+                timeout=Config.AI_REQUEST_TIMEOUT 
+            )
+        except asyncio.TimeoutError:
+             logger.error(f"Profile creation timed out for user {user_id}")
+             raise HTTPException(status_code=504, detail="Database update timed out.")
         
         return {
             "success": True,
             "profile": profile,
-            "message": "Profile created from resume successfully"
+            "message": "Resume imported successfully"
         }
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error creating profile from resume: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception(f"FAILSAFE: 500 Error during resume import: {str(e)}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred during resume import.")
 
 @router.post("/upload-photo")
 async def upload_profile_photo(

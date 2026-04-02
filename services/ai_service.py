@@ -524,12 +524,36 @@ class AIService:
             return {**get_country_fallback_data(target_country), "score": int(semantic_score), "is_fallback": True}
 
     async def extract_structured_data(self, resume_text: str, request_id: str = "internal") -> Dict[str, Any]:
-        """Extract resume text into structured JSON."""
+        """Extract resume text into structured JSON with Pydantic validation."""
         prompt = f"Parse Resume Text into JSON. VERBATIM MODE. TEXT: {resume_text[:10000]}"
         api_res = await self.call_api(prompt, temperature=0.0, max_tokens=3000, request_id=request_id)
+        
         try:
-            return json.loads(self._clean_json_string(api_res))
-        except Exception: return {}
+            raw_json = json.loads(self._clean_json_string(api_res))
+            
+            # Map common legacy keys to Pydantic model keys
+            mapped_json = copy.deepcopy(raw_json)
+            if "experience" in raw_json and "work_experiences" not in raw_json:
+                mapped_json["work_experiences"] = raw_json["experience"]
+            if "education" in raw_json and "educations" not in raw_json:
+                mapped_json["educations"] = raw_json["education"]
+                
+            # Validate and coerce types (Staff+ Robustness)
+            validated = ExtractionResponse(**mapped_json).model_dump()
+            
+            # Additional cleanup: Rename keys for the ProfileService
+            return {
+                **validated,
+                "experience": validated["work_experiences"], # Backward compatibility
+                "education": validated["educations"]
+            }
+        except Exception as e:
+            logger.error(f"Structured extraction failed to validate: {e}")
+            # Fallback to raw JSON if it exists, otherwise empty
+            try:
+                return json.loads(self._clean_json_string(api_res))
+            except:
+                return {}
 
     async def generate_resume_title(self, user_data: Dict[str, Any], job_description: str = "", request_id: str = "internal") -> str:
         """Suggest a concise resume title."""
