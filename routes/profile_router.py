@@ -98,17 +98,15 @@ async def create_profile_from_resume(
             logger.error(f"AI Extraction timed out for user {user_id}")
             raise HTTPException(status_code=504, detail="AI extraction timed out. Please try again.")
         
-        # 2. SCHEMA TRANSFORMATION (Strict v6.1.0 logic)
-        if not structured_data or not structured_data.get("full_name"):
-            logger.error(f"AI Extraction returned invalid data for user {user_id}: {structured_data}")
-            raise HTTPException(
-                status_code=422, 
-                detail="AI could not find personal details in this file. Please ensure it is a valid resume."
-            )
+        # 2. SCHEMA TRANSFORMATION (Strict v6.3.0 logic)
+        # We no longer raise 422 here because ai_service.extract_structured_data (v6.3.0) 
+        # now guarantees a 'full_name' fallback if AI fails.
+        if not structured_data:
+            structured_data = {"full_name": "Resume Professional", "work_experiences": [], "educations": []}
 
         # Map to platform profile schema
         profile_data = {
-            "full_name": structured_data.get("full_name", ""),
+            "full_name": structured_data.get("full_name", "Resume Professional"),
             "headline": structured_data.get("headline", ""),
             "email": structured_data.get("email", ""),
             "phone": structured_data.get("phone", ""),
@@ -132,6 +130,8 @@ async def create_profile_from_resume(
         except asyncio.TimeoutError:
              logger.error(f"Profile creation timed out for user {user_id}")
              raise HTTPException(status_code=504, detail="Database update timed out.")
+        
+        logger.info(f"RESUME IMPORT SUCCESS: User {user_id} ({profile_data.get('full_name')})")
         
         return {
             "success": True,

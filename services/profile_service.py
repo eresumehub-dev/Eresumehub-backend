@@ -142,9 +142,12 @@ class ProfileService:
                     
                     if field == 'date_of_birth' and val == "":
                         profile_payload[field] = None
-                    elif field in ['skills', 'languages', 'links'] and not isinstance(val, list):
-                        # Type Guard: Force list types (v6.1.0)
-                        profile_payload[field] = []
+                    elif field in ['skills', 'languages', 'links']:
+                        # Defensive Normalization (v6.4.0): Force list types
+                        if val is None: profile_payload[field] = []
+                        elif isinstance(val, list): profile_payload[field] = val
+                        elif isinstance(val, str) and val.strip(): profile_payload[field] = [val.strip()]
+                        else: profile_payload[field] = []
                     else:
                         profile_payload[field] = val
             

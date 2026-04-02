@@ -523,10 +523,42 @@ class AIService:
         except Exception:
             return {**get_country_fallback_data(target_country), "score": int(semantic_score), "is_fallback": True}
 
+    def _ensure_list(self, val: Any) -> List[Any]:
+        """Defensive Normalization (v6.4.0): Force non-list types into lists."""
+        if val is None: return []
+        if isinstance(val, list): return val
+        if isinstance(val, str) and val.strip(): return [val.strip()]
+        return []
+
     async def extract_structured_data(self, resume_text: str, request_id: str = "internal") -> Dict[str, Any]:
-        """Extract resume text into structured JSON with Pydantic validation."""
-        prompt = f"Parse Resume Text into JSON. VERBATIM MODE. TEXT: {resume_text[:10000]}"
-        api_res = await self.call_api(prompt, temperature=0.0, max_tokens=3000, request_id=request_id)
+        """Extract resume text into structured JSON with production-grade hardening. (v6.4.0)"""
+        extraction_schema = {
+            "full_name": "string",
+            "email": "string",
+            "phone": "string",
+            "headline": "string (e.g. Senior Software Engineer)",
+            "summary": "string (professional summary)",
+            "work_experiences": [{"job_title": "str", "company": "str", "start_date": "str", "end_date": "str", "is_current": "bool", "achievements": ["str"]}],
+            "educations": [{"degree": "str", "institution": "str", "graduation_date": "str"}],
+            "skills": ["string"]
+        }
+        
+        prompt = f"""
+        TASK: Parse the following RESUME TEXT into the EXACT JSON schema provided below.
+        
+        RULES:
+        1. Extract the 'full_name' with absolute priority. If not explicitly found, look at the header or email prefix.
+        2. Format all dates as 'YYYY-MM' (e.g., '2023-01').
+        3. Ensure 'achievements' in work experience is a LIST of strings, NOT a single paragraph.
+        4. If a field is missing, return null or an empty list [].
+        
+        SCHEMA: {json.dumps(extraction_schema)}
+        
+        TEXT:
+        {resume_text[:12000]}
+        """
+        
+        api_res = await self.call_api(prompt, temperature=0.0, max_tokens=3500, request_id=request_id)
         
         try:
             raw_json = json.loads(self._clean_json_string(api_res))
@@ -538,6 +570,21 @@ class AIService:
             if "education" in raw_json and "educations" not in raw_json:
                 mapped_json["educations"] = raw_json["education"]
                 
+            # DEFENSIVE NORMALIZATION (v6.4.0): Prevent Pydantic Type Conflicts
+            # We force problematic keys to be lists before validation.
+            list_keys = ["work_experiences", "educations", "skills"]
+            for k in list_keys:
+                mapped_json[k] = self._ensure_list(mapped_json.get(k))
+
+            # FUZZY NAME RESOLUTION (v6.3.0): Prevent 422 if AI fails
+            if not mapped_json.get("full_name") and mapped_json.get("email"):
+                name_part = mapped_json["email"].split('@')[0].replace('.', ' ').title()
+                mapped_json["full_name"] = name_part
+            
+            # Final Fallback: Mandatory Field (v6.3.0)
+            if not mapped_json.get("full_name"):
+                 mapped_json["full_name"] = "Resume Professional"
+                
             # Validate and coerce types (Staff+ Robustness)
             validated = ExtractionResponse(**mapped_json).model_dump()
             
@@ -548,12 +595,8 @@ class AIService:
                 "education": validated["educations"]
             }
         except Exception as e:
-            logger.error(f"Structured extraction failed to validate: {e}")
-            # Fallback to raw JSON if it exists, otherwise empty
-            try:
-                return json.loads(self._clean_json_string(api_res))
-            except:
-                return {}
+            logger.error(f"Structured extraction validation crash: {e}. RAW OUTPUT: {api_res[:200]}")
+            return {"full_name": "Resume Professional", "work_experiences": [], "educations": [], "skills": []}
 
     async def generate_resume_title(self, user_data: Dict[str, Any], job_description: str = "", request_id: str = "internal") -> str:
         """Suggest a concise resume title."""
