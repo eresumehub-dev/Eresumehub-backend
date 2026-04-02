@@ -94,9 +94,19 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# 4. Middleware & Security (CORS MUST BE FIRST)
 # -----------------------------
-# 4. Middleware & Security
-# -----------------------------
+# Staff+ Hardening: CORS preflight must be caught before any other middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=Config.ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+print(f"BOOT_LOG: CORS Trusted Origins -> {Config.ALLOWED_ORIGINS}")
+
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -109,15 +119,6 @@ async def add_request_id(request: Request, call_next):
     response.headers["X-Request-ID"] = request_id
     return response
 
-# CORS Hardening (Staff+ Verified)
-# Never allow wildcard regex with credentials in production
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=Config.ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 async def verify_api_key(api_key: str = Header(None, alias="X-API-Key")):
