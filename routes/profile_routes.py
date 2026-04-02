@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Request
 from typing import Dict, Any, Optional
 import logging
 import asyncio
-from routes.auth import get_current_user_ids
+from utils.auth_deps import get_current_user_ids
 from services.supabase_service import supabase_service
 from services.profile_service import ProfileService
 

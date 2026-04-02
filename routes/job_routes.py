@@ -2,7 +2,7 @@ from fastapi import APIRouter, Request, HTTPException, Depends
 from typing import Dict, Any, Optional
 import logging
 from rq.job import Job
-from routes.auth import get_current_user_ids
+from utils.auth_deps import get_current_user_ids
 from schemas.resume_schemas import JobStatusResponse
 from fastapi.concurrency import run_in_threadpool
 

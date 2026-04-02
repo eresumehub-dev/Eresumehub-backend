@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request, HTTPException, Depends
 from typing import Dict, Any
 from rq import Queue, Worker
-from routes.auth import get_current_user_id
+from utils.auth_deps import get_current_user_id
 import logging
 
 router = APIRouter(prefix="/api/v1/system", tags=["System"])
