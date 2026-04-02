@@ -30,7 +30,9 @@ class Config:
     PORT: int = int(os.getenv("PORT", 8000))
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
     SUPABASE_KEY: str = os.getenv("SUPABASE_SERVICE_KEY", "")
+    # Deep Discovery Chain (v3.21.0)
     REDIS_URL: str = (
+        os.getenv("ERESUME_REDIS_URL") or
         os.getenv("INTERNAL_REDIS_URL") or 
         os.getenv("REDIS_URL") or 
         os.getenv("REDIS_INTERNAL_URL") or 

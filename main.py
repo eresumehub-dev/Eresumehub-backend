@@ -25,6 +25,7 @@ from slowapi.errors import RateLimitExceeded
 # -----------------------------
 load_dotenv()
 from app_settings import Config
+print(f"BOOT_LOG: Redis Discovery active. Identified: {Config.REDIS_URL[:15]}...")
 Config.validate()
 
 # -----------------------------

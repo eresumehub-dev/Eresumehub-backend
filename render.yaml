@@ -8,7 +8,7 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
-      - key: REDIS_URL
+      - key: ERESUME_REDIS_URL
         fromService:
           name: eresumehub-redis
           type: redis
@@ -41,7 +41,7 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
-      - key: REDIS_URL
+      - key: ERESUME_REDIS_URL
         fromService:
           name: eresumehub-redis
           type: redis
