@@ -97,9 +97,16 @@ app = FastAPI(
 # 4. Middleware & Security (CORS MUST BE FIRST)
 # -----------------------------
 # Staff+ Hardening: CORS preflight must be caught before any other middleware
+# Hardcoding production origins to bypass potential .env synchronization lag on Render
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=Config.ALLOWED_ORIGINS,
+    allow_origins=[
+        "https://e-resumehub.netlify.app",
+        "https://eresumehub.com",
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://localhost:8000"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
