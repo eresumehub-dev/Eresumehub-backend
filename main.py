@@ -74,6 +74,10 @@ async def lifespan(app: FastAPI):
         app.state.default_queue = None
         app.state.low_queue = None
         app.state.rq_queue = None
+        
+        # Staff+ Production Seal: Hard fail if infra is missing in production
+        if Config.ENVIRONMENT == "production":
+            raise RuntimeError(f"CRITICAL INFRASTRUCTURE FAILURE: Redis is REQUIRED in production environment. {e}")
 
     yield
     if hasattr(app.state, "redis") and app.state.redis:

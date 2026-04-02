@@ -28,6 +28,7 @@ class Config:
     ENABLE_LOGGING: bool = os.getenv("ENABLE_LOGGING", "True").lower() == "true"
     HOST: str = os.getenv("HOST", "0.0.0.0")
     PORT: int = int(os.getenv("PORT", 8000))
+    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development") # 'production' or 'development'
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
     SUPABASE_KEY: str = os.getenv("SUPABASE_SERVICE_KEY", "")
     # Deep Discovery Chain (v3.22.0)
