@@ -12,7 +12,7 @@ services:
         fromService:
           name: eresumehub-redis
           type: redis
-          property: connectionString
+          property: internalConnectionString
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_KEY
@@ -45,7 +45,7 @@ services:
         fromService:
           name: eresumehub-redis
           type: redis
-          property: connectionString
+          property: internalConnectionString
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_KEY
@@ -64,4 +64,4 @@ databases:
     type: redis
     region: oregon
     plan: free # Change to 'standard' for production SLAs
-    ipAllowList: [] 
+    ipAllowList: []
