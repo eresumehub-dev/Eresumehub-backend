@@ -39,13 +39,9 @@ class Config:
             if val and "://" in val:
                 return val
         
-        # 2. Universal Probe: Scan all keys for any Redis-like URL
-        for key, val in os.environ.items():
-            if "REDIS" in key.upper() and val and "://" in val:
-                return val
-                
-        # 3. Fallback to localhost (Standard dev)
-        return "redis://localhost:6379"
+        # 2. Render Internal DNS Fallback (v3.23.0)
+        # On Render, the service name 'eresumehub-redis' is available as a hostname
+        return "redis://eresumehub-redis:6379"
 
     REDIS_URL: str = _discover_redis_url.__func__(None) if hasattr(_discover_redis_url, "__func__") else _discover_redis_url()
 
