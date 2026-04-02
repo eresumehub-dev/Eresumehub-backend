@@ -17,18 +17,16 @@ class ProfileService:
     # ==================== Profile CRUD ====================
     
     async def get_profile(self, user_id: str) -> Optional[Dict[str, Any]]:
-        """Get user profile with work experiences and education (Using platform_user_id)"""
+        """Get user profile with work experiences, education, and extras concurrently (v7.1.0)"""
         try:
-            # 1. Get profile using PLATFORM ID (Standard v3.16.0)
+            # 1. First, we MUST find the profile_id
             profile_response = await self.supabase.client.table('user_profiles')\
-                .select('*')\
+                .select('id, user_id, full_name, email, phone, city, photo_url, linkedin_url, website, portfolio_url, professional_summary, country, headline, languages, skills')\
                 .eq('user_id', user_id)\
                 .execute()
             
-            # 2. Fallback check: Some legacy profiles might still use Auth ID string
+            # Fallback for Auth ID
             if not profile_response.data:
-                logger.info(f"Profile not found by platform_id {user_id}, checking if it exists under Auth ID...")
-                # We can perform a join if needed, but for now we look for the user record
                 user_res = await self.supabase.client.table('users').select('auth_user_id').eq('id', user_id).execute()
                 if user_res.data:
                     auth_id = user_res.data[0]['auth_user_id']
@@ -41,58 +39,30 @@ class ProfileService:
             profile = profile_response.data[0]
             profile_id = profile['id']
             
-            # Get work experiences
-            work_response = await self.supabase.client.table('work_experiences')\
-                .select('*')\
-                .eq('profile_id', profile_id)\
-                .order('display_order')\
-                .execute()
-            
-            # Get education
-            edu_response = await self.supabase.client.table('educations')\
-                .select('*')\
-                .eq('profile_id', profile_id)\
-                .order('display_order')\
-                .execute()
-            
-            profile['work_experiences'] = work_response.data or []
-            profile['educations'] = edu_response.data or []
+            # 2. Concurrency Leap (Elite Rank v4.2.0)
+            # Fetch all sub-collections in parallel to eliminate sequential wait-times
+            results = await asyncio.gather(
+                self.supabase.client.table('work_experiences').select('*').eq('profile_id', profile_id).order('display_order').execute(),
+                self.supabase.client.table('educations').select('*').eq('profile_id', profile_id).order('display_order').execute(),
+                self.supabase.client.table('projects').select('*').eq('profile_id', profile_id).order('display_order').execute(),
+                self.supabase.client.table('certifications').select('*').eq('profile_id', profile_id).order('display_order').execute(),
+                self.supabase.client.table('profile_extras').select('*').eq('profile_id', profile_id).execute(),
+                return_exceptions=True
+            )
 
-            # Get projects
-            try:
-                proj_response = await self.supabase.client.table('projects')\
-                    .select('*')\
-                    .eq('profile_id', profile_id)\
-                    .order('display_order')\
-                    .execute()
-                profile['projects'] = proj_response.data or []
-            except Exception as e:
-                logger.warning(f"Error fetching projects (table might be missing): {str(e)}")
-                profile['projects'] = []
-            
-            # Get certifications
-            try:
-                cert_response = await self.supabase.client.table('certifications')\
-                    .select('*')\
-                    .eq('profile_id', profile_id)\
-                    .order('display_order')\
-                    .execute()
-                profile['certifications'] = cert_response.data or []
-            except Exception as e:
-                logger.warning(f"Error fetching certifications (table might be missing): {str(e)}")
-                profile['certifications'] = []
-            
-            # Get extras (awards, interests, etc.)
-            try:
-                extras_response = await self.supabase.client.table('profile_extras')\
-                    .select('*')\
-                    .eq('profile_id', profile_id)\
-                    .execute()
-                profile['extras'] = extras_response.data[0] if extras_response.data else {}
-            except Exception as e:
-                logger.warning(f"Error fetching extras (table might be missing): {str(e)}")
-                profile['extras'] = {}
-            
+            # 3. Unpack and handle errors gracefully per stream
+            # work_experiences
+            profile['work_experiences'] = results[0].data if not isinstance(results[0], Exception) else []
+            # educations
+            profile['educations'] = results[1].data if not isinstance(results[1], Exception) else []
+            # projects
+            profile['projects'] = results[2].data if not isinstance(results[2], Exception) else []
+            # certifications
+            profile['certifications'] = results[3].data if not isinstance(results[3], Exception) else []
+            # extras (single record)
+            extras = results[4].data if not isinstance(results[4], Exception) else []
+            profile['extras'] = extras[0] if extras else {}
+
             return profile
             
         except Exception as e:

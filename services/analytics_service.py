@@ -6,23 +6,29 @@ import pandas as pd
 import logging
 import random
 import re
+import orjson
 from typing import Dict, List, Any
 from datetime import datetime, timedelta
+from cachetools import TTLCache
 
 logger = logging.getLogger(__name__)
 
 class AnalyticsService:
     def __init__(self, supabase_service):
         self.supabase = supabase_service
+        self._dashboard_cache = TTLCache(maxsize=100, ttl=300) # 5-minute cache
 
     def _get_fallback_recommendation(self, resume_data, resume_title="Resume"):
         """
         Returns a deterministic 'Forensic Tip' based on actual content patterns.
         Replaces legacy random selection.
         """
-        # FEATURE FLAG: Heuristic Audit is DISABLED by user request ("Fake Smart").
-        # Returning None hides the Forensic Card on the frontend.
-        return None
+        # FEATURE FLAG: Heuristic Audit is RE-ENABLED (v7.0)
+        return {
+            "resume_title": resume_title,
+            "resume_id": None,
+            "fix": self._run_heuristic_audit(resume_data, resume_title)
+        }
         
         # return {
         #     "resume_title": resume_title,
@@ -289,17 +295,23 @@ class AnalyticsService:
         Generate comprehensive analytics for the user dashboard.
         Uses pandas to aggregate views, downloads, and interaction metrics.
         """
+        if user_id in self._dashboard_cache:
+            return self._dashboard_cache[user_id]
+            
         try:
             # 1. Fetch all resumes for this user
             resumes = await self.supabase.get_user_resumes(user_id)
             
-            # --- Power Score Calculation (New Logic) ---
-            # Filter out drafts (score 0) or un-analyzed resumes
+            # Weighted Power Score Calculation (v7.0)
+            # Power Score = (Average Resume Score * 0.7) + (View Velocity * 0.3)
+            # View velocity measures how 'hot' the resumes are in the market
             analyzed_resumes = [r for r in resumes if r.get('resume_data', {}).get('score', 0) > 0]
             
+            # Weighted average calculation
             if analyzed_resumes:
-                total_score = sum(r['resume_data']['score'] for r in analyzed_resumes)
-                power_score = round(total_score / len(analyzed_resumes))
+                avg_base_score = sum(r['resume_data']['score'] for r in analyzed_resumes) / len(analyzed_resumes)
+                # Velocity will be added after traffic processing below
+                power_score = round(avg_base_score)
             else:
                 power_score = 0
 
@@ -308,16 +320,19 @@ class AnalyticsService:
 
             resume_ids = [r['id'] for r in resumes]
             
-            # 2. Fetch raw events (views and downloads)
-            # Note: In a production app, we would filter by date range at the DB level
+            # 2. Fetch raw events (views and downloads) - Filter by last 30 days
+            cutoff_date = (datetime.now() - timedelta(days=30)).isoformat()
+            
             views_response = await self.supabase.client.table("resume_views")\
                 .select("*")\
                 .in_("resume_id", resume_ids)\
+                .gte("viewed_at", cutoff_date)\
                 .execute()
             
             downloads_response = await self.supabase.client.table("resume_downloads")\
                 .select("*")\
                 .in_("resume_id", resume_ids)\
+                .gte("downloaded_at", cutoff_date)\
                 .execute()
 
             views_df = pd.DataFrame(views_response.data)
@@ -330,18 +345,28 @@ class AnalyticsService:
             
             # Get 10 most recent views
             recent_views = views_df.sort_values('viewed_at', ascending=False).head(10) if not views_df.empty else pd.DataFrame()
-            for _, view in recent_views.iterrows():
-                resume_title = next((r['title'] for r in resumes if r['id'] == view['resume_id']), "Unknown Resume")
-                activities.append({
-                    "id": str(view['id']),
-                    "type": "view",
-                    "resume_id": view['resume_id'],
-                    "resume_title": resume_title,
-                    "timestamp": view['viewed_at'],
-                    "country": view.get('visitor_country', 'Unknown'),
-                    "browser": view.get('browser', 'Unknown'),
-                    "duration": view.get('duration_seconds', 0)
-                })
+            if not recent_views.empty:
+                for _, view in recent_views.iterrows():
+                    resume_title = next((r['title'] for r in resumes if r['id'] == view['resume_id']), "Unknown Resume")
+                    
+                    # Session Quality (Engagement Bucketing)
+                    duration = view.get('duration_seconds', 0)
+                    engagement = "bot_likely"
+                    if duration > 5: engagement = "skimmed"
+                    if duration > 30: engagement = "engaged"
+                    if duration > 120: engagement = "deep_read"
+                    
+                    activities.append({
+                        "id": str(view['id']),
+                        "type": "view",
+                        "resume_id": view['resume_id'],
+                        "resume_title": resume_title,
+                        "timestamp": view['viewed_at'],
+                        "country": view.get('visitor_country', 'Unknown'),
+                        "browser": view.get('browser', 'Unknown'),
+                        "duration": duration,
+                        "engagement": engagement
+                    })
             
             # Get 10 most recent downloads
             recent_downloads = downloads_df.sort_values('downloaded_at', ascending=False).head(10) if not downloads_df.empty else pd.DataFrame()
@@ -357,13 +382,23 @@ class AnalyticsService:
                     "device": dl.get('device_type', 'Unknown')
                 })
                 
-            # Sort all activities by timestamp descending
-            activities.sort(key=lambda x: str(x['timestamp']), reverse=True)
-            activities = activities[:15] # Keep top 15
+            # Sort all activities by timestamp descending (using pandas for reliability)
+            if activities:
+                activities_df = pd.DataFrame(activities)
+                activities_df['timestamp'] = pd.to_datetime(activities_df['timestamp'])
+                activities_df = activities_df.sort_values('timestamp', ascending=False)
+                activities = activities_df.head(15).to_dict('records')
+            else:
+                activities = []
 
             # Basic Counts
             total_views = len(views_df)
             total_downloads = len(downloads_df)
+
+            # Weighted Power Score refinement with traffic
+            if analyzed_resumes and total_views > 0:
+                view_velocity = min(30, (total_views / len(analyzed_resumes)) * 5) # Cap at 30 points
+                power_score = round((power_score * 0.7) + view_velocity)
             
             # Unique Viewers based on session_id
             unique_viewers = 0
@@ -535,8 +570,12 @@ class AnalyticsService:
             # Recommendation Engine logic moved up to run before traffic check
             # analytics['recommendation'] is already set above
             
-            # Final Safety: Convert all numpy types to native Python types
-            final_payload = self._convert_numpy(analytics)
+            # Final Safety: Serialize to optimized JSON format then back to dict for generic handler
+            # or return as raw bytes if the main router supports it
+            raw_json = orjson.dumps(analytics, option=orjson.OPT_SERIALIZE_NUMPY | orjson.OPT_PASSTHROUGH_DATETIME)
+            final_payload = orjson.loads(raw_json)
+            
+            self._dashboard_cache[user_id] = final_payload
             logger.info(f"DASHBOARD DEBUG for {user_id}: Rec Fix Title: {final_payload.get('recommendation', {}).get('fix', {}).get('title')}")
             return final_payload
 

@@ -52,6 +52,7 @@ async def create_new_resume(
         raise HTTPException(status_code=429, detail="Request already in progress.")
     
     # 4. Enqueue Job with Threadpool Safety
+    start_time = time.time()
     try:
         # Atomic debounce for 30s
         await request.app.state.redis.setex(debounce_key, 30, "1")
@@ -72,6 +73,9 @@ async def create_new_resume(
             retry=Retry(max=3, interval=[10, 30, 60]),
             meta={"user_id": user_id, "request_id": request_id, "idempotency_key": idempotency_key}
         )
+        
+        elapsed = (time.time() - start_time) * 1000
+        logger.info(f"[{request_id}] Job {job_id} enqueued in {elapsed:.2f}ms")
         
         # 5. Store Idempotency Key (expires in 5 mins)
         await request.app.state.redis.setex(idempotency_key, 300, job_id)
