@@ -557,6 +557,7 @@ class AnalyticsService:
             "geo_distribution": [],
             "device_stats": [],
             "resume_performance": [],
+            "activities": [],
             "recommendation": self._get_fallback_recommendation({}, "Resume")
         }
 

@@ -155,7 +155,7 @@ async def list_user_resumes(user_id: str = Depends(get_current_user_id)):
     """Fetch all resumes belonging to the authenticated user (Standard platform_user_id)."""
     try:
         resumes = await supabase_service.get_user_resumes(user_id)
-        return {"success": True, "data": resumes}
+        return {"success": True, "data": {"resumes": resumes}}
     except Exception as e:
         logger.error(f"Failed to list resumes for user {user_id}: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")

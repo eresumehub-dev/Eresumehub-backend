@@ -27,7 +27,19 @@ async def get_user_profile_endpoint(user = Depends(get_current_user_ids)):
             return {"profile": None, "exists": False, "error": "Database timeout"}
             
         if not profile:
-            return {"profile": None, "exists": False}
+            # Return a structured empty profile to prevent frontend crashes
+            return {
+                "profile": {
+                    "full_name": "",
+                    "headline": "",
+                    "summary": "",
+                    "skills": [],
+                    "contact": {"email": "", "phone": "", "location": ""},
+                    "experience": [],
+                    "education": []
+                },
+                "exists": False
+            }
         return {"profile": profile, "exists": True}
     except Exception as e:
         logger.error(f"Error fetching profile: {e}")
