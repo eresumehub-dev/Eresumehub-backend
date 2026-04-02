@@ -3,7 +3,8 @@ User Profile Service
 Handles CRUD operations for user profiles, work experiences, and education
 """
 from typing import List, Dict, Any, Optional
-from datetime import datetime, date
+from datetime import datetime, date, timezone
+from services.supabase_service import supabase_service
 import logging
 
 logger = logging.getLogger(__name__)
@@ -16,32 +17,25 @@ class ProfileService:
     # ==================== Profile CRUD ====================
     
     async def get_profile(self, user_id: str) -> Optional[Dict[str, Any]]:
-        """Get user profile with work experiences and education"""
+        """Get user profile with work experiences and education (Using platform_user_id)"""
         try:
-            # FIX: User ID passed here is likely the PUBLIC ID (from get_current_user_id)
-            # But user_profiles.user_id links to AUTH ID.
-            # We need to resolve Public ID -> Auth ID first.
-            
-            # 1. Resolve Auth ID
-            # Check both 'id' (platform_id) and 'auth_user_id' in public.users
-            # This ensures that if we are passed either ID, we find the correct record.
-            user_response = await self.supabase.client.table('users')\
-                .select('auth_user_id')\
-                .or_(f"id.eq.{user_id},auth_user_id.eq.{user_id}")\
-                .execute()
-            
-            auth_user_id = user_id # Fallback to input ID
-            if user_response.data:
-                auth_user_id = user_response.data[0]['auth_user_id']
-                
-            # 2. Get profile using AUTH ID
+            # 1. Get profile using PLATFORM ID (Standard v3.16.0)
             profile_response = await self.supabase.client.table('user_profiles')\
                 .select('*')\
-                .eq('user_id', auth_user_id)\
+                .eq('user_id', user_id)\
                 .execute()
             
+            # 2. Fallback check: Some legacy profiles might still use Auth ID string
             if not profile_response.data:
-                logger.warning(f"Profile not found for user {user_id} (Auth ID: {auth_user_id})")
+                logger.info(f"Profile not found by platform_id {user_id}, checking if it exists under Auth ID...")
+                # We can perform a join if needed, but for now we look for the user record
+                user_res = await self.supabase.client.table('users').select('auth_user_id').eq('id', user_id).execute()
+                if user_res.data:
+                    auth_id = user_res.data[0]['auth_user_id']
+                    profile_response = await self.supabase.client.table('user_profiles')\
+                        .select('*').eq('user_id', auth_id).execute()
+
+            if not profile_response.data:
                 return None
             
             profile = profile_response.data[0]
@@ -108,17 +102,12 @@ class ProfileService:
     async def create_or_update_profile(self, user_id: str, profile_data: Dict[str, Any], is_ai_import: bool = False) -> Dict[str, Any]:
         """Create or update user profile"""
         try:
-            # FIX: Resolve Public ID or Auth ID to consistent Auth ID
-            user_response = await self.supabase.client.table('users')\
-                .select('auth_user_id')\
-                .or_(f"id.eq.{user_id},auth_user_id.eq.{user_id}")\
-                .execute()
+            # Standard Identity Logic (v3.16.0)
+            # Ensure we update the correct profile, preferring Auth ID for the FK
+            user_res = await self.supabase.client.table('users').select('auth_user_id').eq('id', user_id).execute()
+            auth_user_id = user_res.data[0]['auth_user_id'] if user_res.data else user_id
             
-            auth_user_id = user_id
-            if user_response.data:
-                auth_user_id = user_response.data[0]['auth_user_id']
-            
-            # Check if profile exists using Auth ID and grab current fields for intelligent merging
+            # Check if profile exists using Auth ID
             existing = await self.supabase.client.table('user_profiles')\
                 .select('*')\
                 .eq('user_id', auth_user_id)\
@@ -128,7 +117,7 @@ class ProfileService:
             
             profile_payload = {
                 'user_id': auth_user_id,
-                'updated_at': datetime.utcnow().isoformat()
+                'updated_at': datetime.now(timezone.utc).isoformat()
             }
             
             # Only update fields that are actually provided in profile_data
@@ -491,6 +480,5 @@ class ProfileService:
                  return f"{year}-01-01"
 
         # If all parsing fails, return None (which triggers fallback in caller or DB default)
-        # But wait, we want to fallback to today ONLY if truly necessary to avoid DB crash
         logger.warning(f"Could not parse date: '{date_str}', falling back to Today")
-        return datetime.utcnow().strftime('%Y-%m-%d')
+        return datetime.now(timezone.utc).strftime('%Y-%m-%d')

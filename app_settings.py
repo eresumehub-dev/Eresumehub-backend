@@ -26,6 +26,7 @@ class Config:
     PORT: int = int(os.getenv("PORT", 8000))
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
     SUPABASE_KEY: str = os.getenv("SUPABASE_SERVICE_KEY", "")
+    REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379")
 
     @classmethod
     def validate(cls):

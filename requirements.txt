@@ -25,14 +25,16 @@ prometheus-client==0.19.0  # Metrics
 # ===============================
 python-multipart==0.0.6
 
-PyPDF2==3.0.1              # PDF text extraction
+# PyMuPDF is the primary PDF engine for extraction (v3.14.0)
+pymupdf==1.22.5
 docx2txt==0.8              # DOCX parsing
 
 # ===============================
 #  RATE LIMITING / SECURITY
 # ===============================
 slowapi==0.1.9             # API rate limiting
-redis==5.0.1               # Distributed caching (optional)
+redis==5.0.1               # Distributed caching & Jobs
+rq==1.15.0                 # Simple, robust task queue
 loguru==0.7.2              # Structured logging
 
 # ===============================
@@ -41,10 +43,10 @@ loguru==0.7.2              # Structured logging
 email-validator==2.1.0     # Email validation for pydantic
 aiofiles==23.2.1           # Async file operations
 supabase>=2.3.0
-xhtml2pdf==0.2.15
+weasyprint==60.1           # Superior PDF engine
 pandas>=2.0.0
 numpy>=1.24.0
-PyMuPDF==1.22.5            # Replaces 'fitz'
+# pymupdf (fitz) is managed in the File Processing section.
 jinja2==3.1.4              # HTML templating
 
 # ===============================

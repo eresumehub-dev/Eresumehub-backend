@@ -484,6 +484,35 @@ class SupabaseService:
         except Exception as e:
             logger.error(f"Error uploading PDF: {str(e)}")
             raise
+
+    async def get_resume_signed_url(self, user_id: str, resume_id: str, expires_in: int = 60) -> str:
+        """Generate a temporary signed URL for zero-memory direct download (Staff+ Optimized)."""
+        try:
+            # Construct path: resumes/{user_id}/{resume_id}.pdf
+            # Note: The prompt indicated the storage path is f"{user_id}/{resume_id}/{filename}" 
+            # in upload_resume_pdf. Let's find the current filename if possible or assume default.
+            
+            # 1. Fetch resume to get the filename/slug used during upload
+            resume = await self.get_resume(resume_id)
+            if not resume:
+                raise ValueError("Resume not found")
+                
+            filename = f"{resume.get('slug')}.pdf"
+            path = f"{user_id}/{resume_id}/{filename}"
+            
+            # 2. Create signed URL (60s is plenty for a browser to start the stream)
+            response = await self.client.storage.from_("resumes-pdf").create_signed_url(path, expires_in)
+            
+            # The new SDK returns a dict with 'signedURL' (or equivalent)
+            if isinstance(response, dict) and "signedURL" in response:
+                return response["signedURL"]
+                
+            # Fallback for different SDK versions
+            return getattr(response, "signed_url", str(response))
+            
+        except Exception as e:
+            logger.error(f"Error creating signed URL for {resume_id}: {e}")
+            raise
     
     async def upload_thumbnail(self, user_id: str, resume_id: str, image_data: bytes, filename: str) -> str:
         """Upload resume thumbnail"""

@@ -1,6 +1,6 @@
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 from fastapi import HTTPException
 from fastapi.concurrency import run_in_threadpool
@@ -14,6 +14,19 @@ from utils.resume_validator import ResumeComplianceValidator
 from utils.pdf_utils import html_to_pdf
 from utils.html_generator import HTMLGenerator
 
+class PipelineError(Exception):
+    """Base class for all resume pipeline failures (Staff+ Standard)."""
+    def __init__(self, code: str, message: str, status_hint: int = 500):
+        self.code = code
+        self.message = message
+        self.status_hint = status_hint
+        super().__init__(message)
+
+class ComplianceError(PipelineError): pass
+class GenerationError(PipelineError): pass
+class StorageError(PipelineError): pass
+class AuthorizationError(PipelineError): pass
+
 logger = logging.getLogger(__name__)
 
 class ResumePipeline:
@@ -22,34 +35,77 @@ class ResumePipeline:
     Validation -> Enrichment -> AI Tailoring -> PDF Rendering -> DB Persistence.
     """
 
-    def __init__(self, request_id: str, profile_service: ProfileService):
+    def __init__(
+        self, 
+        request_id: str, 
+        profile_service: ProfileService,
+        ai_service: Any,
+        supabase_service: Any,
+        analytics_service: Any,
+        rq_job: Any = None
+    ):
         self.request_id = request_id
         self.profile_service = profile_service
+        self.ai_service = ai_service
+        self.supabase_service = supabase_service
+        self.analytics_service = analytics_service
+        self.rq_job = rq_job
         self.logger = logger
 
-    @staticmethod
-    async def run_for_user(request_id: str, profile_service: ProfileService, user: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Static entry point for the pipeline.
-        """
-        pipeline = ResumePipeline(request_id, profile_service)
-        return await pipeline.run(user, data)
+    async def _update_status(self, step: str, progress: int):
+        """Update the progress of the current job if available."""
+        if self.rq_job:
+            try:
+                self.rq_job.meta['step'] = step
+                self.rq_job.meta['progress'] = progress
+                # Staff+ Safety: Offload synchronous Redis call
+                await run_in_threadpool(self.rq_job.save_meta)
+                logger.info(f"[{self.request_id}] Progress: {step} ({progress}%)")
+            except Exception as e:
+                logger.warning(f"[{self.request_id}] Failed to update job meta: {e}")
 
-    async def run(self, user: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:
+    @staticmethod
+    async def run_for_user(
+        request_id: str, 
+        profile_service: ProfileService, 
+        ai_service: Any,
+        supabase_service: Any,
+        analytics_service: Any,
+        user: Dict[str, Any], 
+        data: Dict[str, Any],
+        rq_job: Any = None
+    ) -> Dict[str, Any]:
         """
-        Execute the pipeline for a new resume request.
+        Static entry point for the pipeline with full DI.
         """
+        pipeline = ResumePipeline(
+            request_id, 
+            profile_service, 
+            ai_service, 
+            supabase_service, 
+            analytics_service,
+            rq_job=rq_job
+        )
+        action = data.get("action", "create")
+        if action == "improve":
+            return await pipeline._run_improve_flow(user, data)
+        elif action == "enhance":
+            return await pipeline._run_enhance_flow(user, data)
+        else:
+            return await pipeline._run_create_flow(user, data)
+
+    # -----------------------------
+    # 1. Atomic Pipeline Steps (Elite Isolation)
+    # -----------------------------
+
+    async def _step_prepare_data(self, user: Dict[str, Any], data: Dict[str, Any]):
+        await self._update_status("Fetching Profile Data", 10)
         user_id = user["platform_user_id"]
         auth_user_id = user.get("auth_user_id")
-
-        # 1. Enrichment & Data Preparation
-        self.logger.info(f"[{self.request_id}] Starting ResumePipeline for user {user_id}")
-        db_profile = await self.profile_service.get_profile(auth_user_id or user_id)
         
-        # Merge logic to protect shared state
+        db_profile = await self.profile_service.get_profile(auth_user_id or user_id)
         user_data = {**(db_profile or {}), **data.get("user_data", {})}
         
-        # Structure contact info correctly
         if "contact" not in user_data:
             user_data["contact"] = {
                 "email": user_data.get("email", ""),
@@ -58,66 +114,74 @@ class ResumePipeline:
                 "city": user_data.get("city", "")
             }
         
-        # Merge nested contact overrides safely
         request_contact = data.get("user_data", {}).get("contact", {})
         if request_contact:
             user_data["contact"].update(request_contact)
+            
+        return user_data
 
-        # 2. Compliance Validation
+    async def _step_validate(self, user_data: Dict[str, Any], data: Dict[str, Any]):
+        await self._update_status("Market Compliance Check", 20)
         country = data.get("country", user_data.get("country", "Germany"))
         if not data.get("skip_compliance", False):
+            from utils.resume_validator import ResumeComplianceValidator
             validation = ResumeComplianceValidator.validate(user_data, country)
             if not validation["valid"]:
-                self.logger.warning(f"[{self.request_id}] Compliance validation failed")
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "code": "COMPLIANCE_ERROR",
-                        "errors": validation["errors"],
-                        "summary": "Mandatory fields missing for target market."
-                    }
-                )
+                logger.warning(f"[{self.request_id}] Compliance validation failed")
+                raise ComplianceError(code="COMPLIANCE_ERROR", message="Mandatory fields missing.", status_hint=400)
+        return country
 
-        # 3. AI Orchestration
+    async def _step_generate_content(self, user_data: Dict[str, Any], data: Dict[str, Any], country: str):
+        await self._update_status("AI Content Tailoring", 30)
         job_description = data.get("job_description", "")
-        # Determine Smart Title
         job_title = data.get("job_title") or data.get("user_data", {}).get("job_title", "Untitled Resume")
+        
+        import asyncio
         if not job_title or job_title == "Untitled Resume":
-            job_title = await ai_service.generate_resume_title(user_data, job_description)
+            self.logger.info(f"[{self.request_id}] Title missing, invoking AI titler...")
+            job_title = await asyncio.wait_for(
+                self.ai_service.generate_resume_title(user_data, job_description, request_id=self.request_id),
+                timeout=20.0
+            )
 
-        # Content Generation (Step A + Step B)
-        generation_result = await ai_service.generate_tailored_resume(
-            user_data=user_data,
-            job_description=job_description,
-            country=country,
-            language=data.get("language", "English"),
-            job_title=job_title
+        await self._update_status("Generating Smart Sections", 50)
+        generation_result = await asyncio.wait_for(
+            self.ai_service.generate_tailored_resume(
+                user_data=user_data,
+                job_description=job_description,
+                country=country,
+                language=data.get("language", "English"),
+                job_title=job_title,
+                request_id=self.request_id
+            ),
+            timeout=Config.AI_REQUEST_TIMEOUT 
         )
 
         if not generation_result.get("success"):
-            self.logger.error(f"[{self.request_id}] AI Generation Failed: {generation_result.get('error')}")
-            raise HTTPException(status_code=500, detail=f"Resume generation failed: {generation_result.get('error')}")
+            raise GenerationError(code="AI_FAIL", message="AI generation failed")
+            
+        return generation_result, job_title
 
-        # 4. Post-Processing & Normalization
+    async def _step_post_process(self, user_data: Dict[str, Any], generation_result: Dict[str, Any], country: str):
+        await self._update_status("Applying Market Rules", 70)
         resume_content = generation_result["resume_content"]
         spun_data = generation_result.get("spun_data", {})
-        clean_summary = generation_result.get("generated_summary", "")
-
+        
         enriched_data = {
             **user_data,
             "summary_text": resume_content,
-            "professional_summary": clean_summary,
+            "professional_summary": generation_result.get("generated_summary", ""),
             "work_experiences": spun_data.get("work_experiences") or user_data.get("work_experiences", []),
             "skills": spun_data.get("skills") or user_data.get("skills", []),
             "educations": spun_data.get("educations") or user_data.get("educations", []),
             "headline": spun_data.get("headline", ""),
-            "score": 0 # Placeholder for ATS
+            "score": 0 
         }
+        return resume_autocorrect.autocorrect_for_country(enriched_data, country), resume_content
 
-        # Apply Reliability Layer (Auto-Correction)
-        enriched_data = resume_autocorrect.autocorrect_for_country(enriched_data, country)
-
-        # 5. PDF Rendering (xhtml2pdf in threadpool)
+    async def _step_render_and_analyze(self, resume_content: str, enriched_data: Dict[str, Any], job_title: str, country: str, data: Dict[str, Any]):
+        await self._update_status("High-Fidelity PDF & ATS Analysis", 85)
+        import asyncio
         rag_data = RAGService.get_complete_rag(country, data.get("language", "English"))
         html_content = HTMLGenerator.generate_html(
             text=resume_content,
@@ -128,60 +192,202 @@ class ResumePipeline:
             template_style=data.get("template_style", "professional")
         )
 
-        pdf_bytes = await run_in_threadpool(html_to_pdf, html_content)
+        pdf_task = run_in_threadpool(html_to_pdf, html_content)
+        analysis_task = self.ai_service.analyze_resume(resume_content, job_title, country, data.get("job_description", ""))
+        
+        pdf_bytes, analysis = await asyncio.gather(pdf_task, analysis_task)
+        enriched_data["score"] = analysis.get("score", 0)
+        return pdf_bytes, enriched_data
 
-        # 6. Database Persistence
+    async def _step_persist(self, user_id: str, job_title: str, enriched_data: Dict[str, Any], country: str, data: Dict[str, Any], pdf_bytes: bytes):
+        """Staff+ Elite: Idempotent Persistence Layer (Find-or-Update)."""
+        await self._update_status("Saving to Cloud Storage", 95)
+        
+        # 1. Internal Idempotency Check: Look for existing resume with this request_id
+        # This prevents duplicate rows if the worker retries
+        try:
+            existing = await self.supabase_service.client.table("resumes")\
+                .select("*")\
+                .eq("user_id", user_id)\
+                .eq("metadata->>request_id", self.request_id)\
+                .execute()
+            
+            if existing.data:
+                resume_id = existing.data[0]["id"]
+                slug = existing.data[0]["slug"]
+                logger.info(f"[{self.request_id}] Pipeline Idem-Match: Reusing existing resume {resume_id}")
+                
+                # Update existing
+                pdf_url = await self.supabase_service.upload_resume_pdf(user_id, resume_id, pdf_bytes, f"{slug}.pdf")
+                final_resume = await self.supabase_service.update_resume(resume_id, {
+                    "resume_data": enriched_data,
+                    "pdf_url": pdf_url,
+                    "pdf_file_size": len(pdf_bytes)
+                })
+                return resume_id, final_resume
+        except Exception as e:
+            logger.warning(f"[{self.request_id}] Idempotency check failed: {e}")
+
+        # 2. Proceed with Create if no match
+        slug = f"resume-{uuid.uuid4().hex[:8]}"
         resume_payload = {
             "title": job_title,
             "resume_data": enriched_data,
             "country": country,
             "language": data.get("language", "English"),
             "template_style": data.get("template_style", "professional"),
-            "slug": data.get("slug") or f"resume-{uuid.uuid4().hex[:8]}",
-            "job_description": job_description
+            "slug": slug,
+            "metadata": {"request_id": self.request_id},
+            "job_description": data.get("job_description", "")
         }
 
-        # Create row
-        resume = await supabase_service.create_resume(user_id, resume_payload)
-        resume_id = resume["id"]
+        resume_id = None
+        try:
+            resume = await self.supabase_service.create_resume(user_id, resume_payload)
+            resume_id = resume["id"]
+            pdf_url = await self.supabase_service.upload_resume_pdf(user_id, resume_id, pdf_bytes, f"{slug}.pdf")
+            
+            final_resume = await self.supabase_service.update_resume(resume_id, {
+                "resume_data": enriched_data,
+                "pdf_url": pdf_url, 
+                "pdf_file_size": len(pdf_bytes)
+            })
+            return resume_id, final_resume
+        except Exception as e:
+            if resume_id:
+                await self.supabase_service.delete_resume(resume_id)
+            logger.error(f"[{self.request_id}] Storage failure: {e}")
+            raise StorageError(code="STORAGE_FAIL", message="Resume could not be saved.")
 
-        # Upload & Upload
-        filename = f"{resume.get('slug')}.pdf"
-        pdf_url = await supabase_service.upload_resume_pdf(user_id, resume_id, pdf_bytes, filename)
+    # -----------------------------
+    # 2. Main High-Level Flows
+    # -----------------------------
 
-        # Final Update with URL and ATS Score (Step 5)
-        self.logger.info(f"[{self.request_id}] Calculating ATS Score...")
-        analysis = await ai_service.analyze_resume(resume_content, job_title, country, job_description)
-        enriched_data["score"] = analysis.get("score", 0)
-
-        update_payload = {
-            "resume_data": enriched_data,
-            "pdf_url": f"/api/v1/resume/{resume_id}/pdf",
-            "pdf_file_size": len(pdf_bytes)
-        }
+    async def _run_create_flow(self, user: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:
+        """Elite Isolated Flow for Resume Creation."""
+        user_id = user["platform_user_id"]
+        start_time = datetime.now(timezone.utc)
         
-        final_resume = await supabase_service.update_resume(resume_id, update_payload)
+        try:
+            # 1. Step-Isolated Execution
+            user_data = await self._step_prepare_data(user, data)
+            country = await self._step_validate(user_data, data)
+            gen_res, job_title = await self._step_generate_content(user_data, data, country)
+            enriched_data, resume_content = await self._step_post_process(user_data, gen_res, country)
+            pdf_bytes, enriched_data = await self._step_render_and_analyze(resume_content, enriched_data, job_title, country, data)
+            resume_id, final_resume = await self._step_persist(user_id, job_title, enriched_data, country, data, pdf_bytes)
 
-        # 7. Audit Logging
-        await supabase_service.create_audit_log(
-            user_id=user_id,
-            action="RESUME_PIPELINE_COMPLETE",
-            entity_type="resume",
-            entity_id=resume_id,
-            new_data={"request_id": self.request_id, "score": enriched_data["score"]}
+            # 2. Audit & Metrics (Success)
+            duration = (datetime.now(timezone.utc) - start_time).total_seconds()
+            await self._record_metrics("success", duration)
+            
+            await self.supabase_service.create_audit_log(user_id=user_id, action="RESUME_PIPELINE_COMPLETE", 
+                                                        entity_type="resume", entity_id=resume_id, 
+                                                        new_data={"request_id": self.request_id, "score": enriched_data["score"]})
+            
+            return {"success": True, "resume_id": resume_id, "data": final_resume}
+            
+        except Exception as e:
+            await self._record_metrics("failed")
+            # Clear idempotency early if we hit a transient error? 
+            # Implementation choice: let the 5-min TTL handle it to protect AI costs.
+            raise
+
+    async def _record_metrics(self, status: str, duration: float = 0):
+        """Staff+ Performance Monitoring Layer."""
+        if self.rq_job and hasattr(self.rq_job, "connection"):
+            try:
+                pipe = self.rq_job.connection.pipeline()
+                pipe.incr("metrics:jobs:total")
+                pipe.incr(f"metrics:jobs:{status}")
+                if status == "success" and duration > 0:
+                    # Rolling average store (lpush + ltrim for last 100)
+                    pipe.lpush("metrics:jobs:latency", duration)
+                    pipe.ltrim("metrics:jobs:latency", 0, 99)
+                await run_in_threadpool(pipe.execute)
+            except Exception as e:
+                logger.warning(f"Metrics record failed: {e}")
+    async def _run_improve_flow(self, user: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Flow for improving an existing resume text with progress tracking.
+        """
+        user_id = user["platform_user_id"]
+        text = data.get("resume_text", "")
+        
+        # Staff+ Observability: Warning for truncation (v3.13.0)
+        if len(text) > 5000:
+            logger.warning(f"[{self.request_id}] Resume text truncated from {len(text)} to 5000 chars for improve flow")
+            
+        country = data.get("country", "Germany")
+        job_description = data.get("job_description", "")
+
+        self.logger.info(f"[{self.request_id}] Running Improve Flow for user {user_id}")
+        await self._update_status("AI Deep Analysis", 40)
+
+        # 1. AI Enrichment
+        improvement_prompt = f"""
+        Improve this resume for a {country} job application.
+        Job Description: {job_description}
+        Original Resume Text: {text[:5000]}
+        
+        Instructions:
+        1. Fix all ATS compatibility issues.
+        2. Apply {country}-specific formatting.
+        3. Optimize keywords specifically for the job description.
+        4. Return ONLY the improved resume text in a clear professional layout.
+        """
+        
+        import asyncio
+        improved_text = await asyncio.wait_for(
+            self.ai_service.call_api(improvement_prompt, temperature=0.3, request_id=self.request_id),
+            timeout=45.0
         )
-        self.logger.info(f"[{self.request_id}] Pipeline complete for resume {resume_id}")
+        
+        if not improved_text:
+            await self._update_status("AI Improvement Failed", 0)
+            raise GenerationError(code="IMPROVE_FAIL", message="AI Improvement failed")
 
-    async def run_enhancement(self, user_id: str, resume_id: str) -> Dict[str, Any]:
+        await self._update_status("Finalizing Result", 95)
+        
+        # 🛡️ Persist Result (Identified in review)
+        # Create a new resume record for the improved text
+        improve_payload = {
+            "title": f"Improved - {data.get('country', 'International')}",
+            "resume_data": {"summary_text": improved_text, "full_name": user.get("full_name", "User")},
+            "country": country,
+            "job_description": job_description,
+            "status": "ready"
+        }
+        resume = await self.supabase_service.create_resume(user_id, improve_payload)
+
+        # 2. Return result
+        return {
+            "success": True,
+            "resume_id": resume["id"],
+            "improved_text": improved_text,
+            "original_text": text[:500],
+            "country": country
+        }
+
+    async def _run_enhance_flow(self, user: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Execute the pipeline for an existing resume enhancement.
+        Execute the pipeline for an existing resume enhancement with progress tracking.
         """
+        user_id = user["platform_user_id"]
+        resume_id = data.get("resume_id")
+        
         # 1. Fetch Existing State
-        self.logger.info(f"[{self.request_id}] Starting Enhancement Pipeline for resume {resume_id}")
-        resume = await supabase_service.get_resume(resume_id)
-        if not resume or resume.get("user_id") not in [user_id]:
-             # Double check auth_user_id if needed, but usually platform_user_id is the key
-             raise HTTPException(status_code=403, detail="Not authorized to enhance this resume")
+        await self._update_status("Retrieving Resume", 10)
+        self.logger.info(f"[{self.request_id}] Starting Enhancement Flow for resume {resume_id}")
+        resume = await self.supabase_service.get_resume(resume_id)
+        if not user_id:
+            raise AuthorizationError(code="SESSION_EXPIRED", message="Session expired during enhancement")
+        if not resume:
+            raise PipelineError(code="NOT_FOUND", message="Resume not found", status_hint=404)
+        
+        owner_id = resume.get("user_id")
+        if owner_id not in [user_id, user.get("auth_user_id")]:
+             raise AuthorizationError(code="FORBIDDEN", message="Not authorized to enhance this resume", status_hint=403)
 
         current_data = resume.get("resume_data", {})
         job_description = resume.get("job_description", "")
@@ -189,73 +395,93 @@ class ResumePipeline:
         language = resume.get("language", "English")
         title = resume.get("title", current_data.get("job_title", "Professional"))
 
-        # 2. Compliance Validation
-        validation = ResumeComplianceValidator.validate(current_data, country)
-        if not validation["valid"]:
-            raise HTTPException(status_code=400, detail={"code": "COMPLIANCE_ERROR", "errors": validation["errors"]})
-
-        # 3. AI Orchestration (Same logic as run)
-        generation_result = await ai_service.generate_tailored_resume(
+        # 2. AI Orchestration
+        await self._update_status("AI Re-Tailoring", 40)
+        generation_result = await self.ai_service.generate_tailored_resume(
             user_data=current_data,
             job_description=job_description,
             country=country,
             language=language,
-            job_title=title
+            job_title=title,
+            request_id=self.request_id
         )
 
         if not generation_result.get("success"):
-            raise HTTPException(status_code=500, detail=f"Enhancement failed: {generation_result.get('error')}")
+            await self._update_status("Enhancement Failed", 0)
+            raise GenerationError(code="ENHANCE_FAIL", message=f"Enhancement failed: {generation_result.get('error')}")
 
-        # 4. Merge & Post-Process
+        # 3. Render Polished PDF
+        await self._update_status("Polished PDF Rendering", 80)
         resume_content = generation_result["resume_content"]
-        spun_data = generation_result.get("spun_data", {})
-        clean_summary = generation_result.get("generated_summary", "")
-
-        updated_data = {
-            **current_data,
-            "summary_text": resume_content,
-            "professional_summary": clean_summary,
-            "work_experiences": spun_data.get("work_experiences") or current_data.get("work_experiences", []),
-            "skills": spun_data.get("skills") or current_data.get("skills", []),
-            "educations": spun_data.get("educations") or current_data.get("educations", []),
-            "projects": spun_data.get("projects") or current_data.get("projects", []),
-            "headline": spun_data.get("headline", ""),
-            "certifications": spun_data.get("certifications") or current_data.get("certifications", []),
-            "audit_log": generation_result.get("audit_log", {})
-        }
-
-        # Apply Reliability Layer
-        updated_data = resume_autocorrect.autocorrect_for_country(updated_data, country)
-
-        # 5. PDF Rendering
         rag_data = RAGService.get_complete_rag(country, language)
         html_content = HTMLGenerator.generate_html(
             text=resume_content,
-            full_name=updated_data.get("full_name", "Candidate"),
-            contact_info=updated_data.get("contact", {}),
-            user_data=updated_data,
+            full_name=current_data.get("full_name", "Candidate"),
+            contact_info=current_data.get("contact", {}),
+            user_data=current_data,
             rag_data=rag_data,
             template_style=resume.get("template_style", "professional")
         )
 
         pdf_bytes = await run_in_threadpool(html_to_pdf, html_content)
 
-        # 6. Persistence & Scoring
-        filename = f"{resume.get('slug')}.pdf"
-        pdf_url = await supabase_service.upload_resume_pdf(user_id, resume_id, pdf_bytes, filename)
-
-        # Score it
-        analysis = await ai_service.analyze_resume(resume_content, title, country, job_description)
-        updated_data["score"] = analysis.get("score", 0)
-
+        # 4. Save & Finalize
+        await self._update_status("Cloud Sync", 95)
         update_payload = {
-            "resume_data": updated_data,
-            "pdf_url": f"/api/v1/resume/{resume_id}/pdf",
+            "resume_data": {**current_data, "summary_text": resume_content},
+            "pdf_url": await self.supabase_service.upload_resume_pdf(user_id, resume_id, pdf_bytes, f"{resume.get('slug')}.pdf"),
             "pdf_file_size": len(pdf_bytes)
         }
         
-        final_resume = await supabase_service.update_resume(resume_id, update_payload)
+        updated = await self.supabase_service.update_resume(resume_id, update_payload)
+        
+        return {"success": True, "data": updated}
 
-        # 7. Logging
-        self.logger.info(f"[{self.request_id}] Enhancement complete for {resume_id}")
-        return final_resume or resume
+async def run_pipeline_job(request_id: str, user: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    RQ-compatible worker task.
+    Wraps the async ResumePipeline execution.
+    """
+    import asyncio
+    from rq import get_current_job
+    from services.analytics_service import analytics_service
+    
+    # detect current job context for progress tracking
+    job = get_current_job()
+    
+    # Staff+ Optimization: Manage loop manually to prevent 'loop already running' in RQ
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(ResumePipeline.run_for_user(
+            request_id=request_id,
+            profile_service=ProfileService(supabase_service),
+            ai_service=ai_service,
+            supabase_service=supabase_service,
+            analytics_service=analytics_service,
+            user=user,
+            data=data,
+            rq_job=job
+        ))
+    except Exception:
+        # Bare raise to preserve original traceback (Identified in review)
+        raise
+    finally:
+        # Staff+ Security: Ensure high-entropy locks are guaranteed to be cleared (v3.12.0)
+        try:
+            # Re-fetch keys from metadata to ensure we delete the exact ones we created
+            idempotency_key = job.meta.get("idempotency_key")
+            user_id = user.get("platform_user_id")
+            debounce_key = f"debounce:{data.get('action', 'create')}:{user_id}"
+            
+            # Use synchronous execution via job connection (v3.13.0)
+            cleanup_pipe = job.connection.pipeline()
+            if idempotency_key:
+                cleanup_pipe.delete(idempotency_key)
+            cleanup_pipe.delete(debounce_key)
+            cleanup_pipe.execute() 
+            logger.info(f"[{request_id}] Pipeline cleanup complete (locks released)")
+        except Exception as e:
+            logger.warning(f"[{request_id}] Cleanup failed: {e}")
+        
+        loop.close()

@@ -4,7 +4,8 @@ Handles resume-specific operations including updates, cloning, versioning, and s
 """
 import logging
 from typing import Dict, List, Any, Optional
-from datetime import datetime
+import uuid
+from datetime import datetime, timezone
 from services.supabase_service import supabase_service
 from services.ai_service import ai_service
 
@@ -37,7 +38,7 @@ class ResumeService:
             # Update the resume_data field
             update_payload = {
                 "resume_data": content,
-                "updated_at": datetime.utcnow().isoformat()
+                "updated_at": datetime.now(timezone.utc).isoformat()
             }
             
             updated_resume = await supabase_service.update_resume(resume_id, update_payload)
@@ -79,7 +80,7 @@ class ResumeService:
                 "template_style": source_resume.get("template_style", "professional"),
                 "visibility": "private",  # Clones are private by default
                 "is_default": False,
-                "slug": f"resume-clone-{datetime.utcnow().timestamp()}"
+                "slug": f"resume-clone-{uuid.uuid4().hex[:8]}"
             }
             
             # Create the cloned resume
@@ -136,7 +137,7 @@ class ResumeService:
                 "version_number": next_version,
                 "resume_data": resume["resume_data"],
                 "score": resume["resume_data"].get("score"),
-                "created_at": datetime.utcnow().isoformat()
+                "created_at": datetime.now(timezone.utc).isoformat()
             }
             
             version_record = await self.client.table("resume_versions")\
@@ -220,7 +221,7 @@ class ResumeService:
                 "resume_id": resume_id,
                 "score": score,
                 "analysis_data": analysis_data or {},
-                "created_at": datetime.utcnow().isoformat()
+                "created_at": datetime.now(timezone.utc).isoformat()
             }
             
         except Exception as e:
@@ -239,7 +240,7 @@ class ResumeService:
         """
         try:
             await supabase_service.update_resume(resume_id, {
-                "archived_at": datetime.utcnow().isoformat()
+                "archived_at": datetime.now(timezone.utc).isoformat()
             })
             logger.info(f"Resume {resume_id} archived")
             return True
@@ -286,6 +287,7 @@ class ResumeService:
         """
         try:
             # Unset all other defaults for this user
+            # Note: This is not atomic. If part 2 fails, user may have 0 defaults.
             await self.client.table("resumes")\
                 .update({"is_default": False})\
                 .eq("user_id", user_id)\
@@ -300,7 +302,8 @@ class ResumeService:
             return True
             
         except Exception as e:
-            logger.error(f"Failed to set default resume: {str(e)}")
+            logger.error(f"Failed to set default resume atomicity breach risk: {str(e)}")
+            # Attempting manual recovery or logging for audit
             return False
 
 # Global instance
