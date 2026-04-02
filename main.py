@@ -170,6 +170,12 @@ from utils.auth_deps import get_current_user_id
 
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(resume_router)
+# Staff+ Identity Proxy (v3.24.0): Resolve '/api/v1/user/me' to the standard 'auth.me' logic.
+from routes.auth import me as get_me_handler
+@app.get("/api/v1/user/me", tags=["Auth"])
+async def get_current_user_identity_proxy(request: Request):
+    return await get_me_handler(request.headers.get("Authorization"))
+
 app.include_router(job_router)
 app.include_router(profile_router)
 app.include_router(schema_router)

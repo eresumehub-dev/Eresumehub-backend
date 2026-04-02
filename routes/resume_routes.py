@@ -150,6 +150,16 @@ async def improve_existing_resume(
         await request.app.state.redis.delete(debounce_key)
         raise HTTPException(status_code=500, detail="Internal server error")
 
+@router.get("/resumes", response_model=Dict[str, Any])
+async def list_user_resumes(user_id: str = Depends(get_current_user_id)):
+    """Fetch all resumes belonging to the authenticated user (Standard platform_user_id)."""
+    try:
+        resumes = await supabase_service.get_user_resumes(user_id)
+        return {"success": True, "data": resumes}
+    except Exception as e:
+        logger.error(f"Failed to list resumes for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 @router.get("/resumes/{resume_id}")
 async def get_resume_endpoint(resume_id: str, user_id: str = Depends(get_current_user_id)):
     resume = await supabase_service.get_resume(resume_id)
