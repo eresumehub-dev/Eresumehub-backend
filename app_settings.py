@@ -30,14 +30,25 @@ class Config:
     PORT: int = int(os.getenv("PORT", 8000))
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
     SUPABASE_KEY: str = os.getenv("SUPABASE_SERVICE_KEY", "")
-    # Deep Discovery Chain (v3.21.0)
-    REDIS_URL: str = (
-        os.getenv("ERESUME_REDIS_URL") or
-        os.getenv("INTERNAL_REDIS_URL") or 
-        os.getenv("REDIS_URL") or 
-        os.getenv("REDIS_INTERNAL_URL") or 
-        "redis://localhost:6379"
-    )
+    # Deep Discovery Chain (v3.22.0)
+    @classmethod
+    def _discover_redis_url(cls) -> str:
+        # 1. Primary explicit keys
+        for key in ["ERESUME_REDIS_URL", "INTERNAL_REDIS_URL", "REDIS_URL", "REDIS_INTERNAL_URL"]:
+            val = os.getenv(key)
+            if val and "://" in val:
+                return val
+        
+        # 2. Universal Probe: Scan all keys for any Redis-like URL
+        import os
+        for key, val in os.environ.items():
+            if "REDIS" in key.upper() and val and "://" in val:
+                return val
+                
+        # 3. Fallback to localhost (Standard dev)
+        return "redis://localhost:6379"
+
+    REDIS_URL: str = _discover_redis_url.__func__(None) if hasattr(_discover_redis_url, "__func__") else _discover_redis_url()
 
     @classmethod
     def validate(cls):

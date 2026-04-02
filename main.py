@@ -25,7 +25,8 @@ from slowapi.errors import RateLimitExceeded
 # -----------------------------
 load_dotenv()
 from app_settings import Config
-print(f"BOOT_LOG: Redis Discovery active. Identified: {Config.REDIS_URL[:15]}...")
+print(f"BOOT_LOG: Discovery Chain -> {Config.REDIS_URL[:15]}...")
+print(f"BOOT_LOG: Environment Keys -> {', '.join(k for k in os.environ.keys() if 'KEY' not in k.upper() and 'SECRET' not in k.upper())}")
 Config.validate()
 
 # -----------------------------
