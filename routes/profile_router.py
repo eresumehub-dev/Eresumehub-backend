@@ -171,3 +171,17 @@ async def get_profile_completion(user_id: str = Depends(get_current_user_id)):
     except Exception as e:
         logger.error(f"Error calculating profile completion: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/generate-summary")
+async def generate_profile_summary_endpoint(
+    profile_data: Dict[str, Any],
+    user_id: str = Depends(get_current_user_id)
+):
+    """Staff+ AI: Generate professional summary from profile context."""
+    try:
+        from services.profile_service import ProfileService
+        summary = await profile_service.generate_summary(profile_data)
+        return {"summary": summary}
+    except Exception as e:
+        logger.error(f"Summary generation failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate summary")

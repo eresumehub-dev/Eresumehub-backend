@@ -178,7 +178,7 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 from routes.auth import router as auth_router
 from routes.resume_routes import router as resume_router
 from routes.job_routes import router as job_router
-from routes.profile_routes import router as profile_router
+from routes.profile_router import router as profile_router
 from routes.schema_router import router as schema_router
 from routes.analytics_router import router as analytics_router
 from routes.system_routes import router as system_router
