@@ -25,7 +25,11 @@ from slowapi.errors import RateLimitExceeded
 # -----------------------------
 load_dotenv()
 from app_settings import Config
-print(f"BOOT_LOG: Discovery Chain -> {Config.REDIS_URL[:15]}...")
+print(f"BOOT_LOG: Discovery Chain -> {Config.REDIS_URL[:20]}...")
+# Aggressive Scan: Identify any URL-like variables for debugging
+for k, v in os.environ.items():
+    if v and (v.startswith("redis://") or v.startswith("http://") or v.startswith("https://")):
+         print(f"BOOT_LOG: URL-Like Entry Found -> {k}: {v[:15]}...")
 print(f"BOOT_LOG: Environment Keys -> {', '.join(k for k in os.environ.keys() if 'KEY' not in k.upper() and 'SECRET' not in k.upper())}")
 Config.validate()
 
