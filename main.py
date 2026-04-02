@@ -46,9 +46,13 @@ async def lifespan(app: FastAPI):
     if hasattr(supabase_service, "initialize"):
         supabase_service.initialize(Config.SUPABASE_URL, Config.SUPABASE_KEY)
             
-    # Initialize Redis & RQ SAFELY
+    # Initialize Redis & RQ SAFELY with Diagnostics
     try:
-        redis_conn = redis.from_url(Config.REDIS_URL, decode_responses=False)
+        raw_url = Config.REDIS_URL
+        masked_url = re.sub(r':([^@]+)@', ':****@', raw_url) if '@' in raw_url else raw_url
+        logger.info(f"System Check: Redis Endpoint Identified -> {masked_url}")
+        
+        redis_conn = redis.from_url(raw_url, decode_responses=False)
         redis_conn.ping()
         app.state.redis = redis_conn
         app.state.high_queue = Queue('high', connection=redis_conn)
