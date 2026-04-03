@@ -19,6 +19,7 @@ from rq import Queue
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from middleware.latency_middleware import LatencyMiddleware
 
 # -----------------------------
 # 1. Critical Boot Sequence
@@ -112,6 +113,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# -----------------------------
+# 5. Performance Observability (v15.1.0)
+# -----------------------------
+app.add_middleware(LatencyMiddleware)
+
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
 print(f"BOOT_LOG: CORS Trusted Origins -> {Config.ALLOWED_ORIGINS}")
 
 limiter = Limiter(key_func=get_remote_address)
@@ -182,6 +190,7 @@ from routes.profile_router import router as profile_router
 from routes.schema_router import router as schema_router
 from routes.analytics_router import router as analytics_router
 from routes.system_routes import router as system_router
+from routes.user_routes import router as user_router
 from utils.auth_deps import get_current_user_id
 
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["Auth"])
@@ -197,6 +206,7 @@ app.include_router(profile_router)
 app.include_router(schema_router)
 app.include_router(analytics_router)
 app.include_router(system_router)
+app.include_router(user_router)
 
 # -----------------------------
 # 7. Optimized Performance Endpoints

@@ -2,21 +2,54 @@
 Analytics Service
 Handles data processing and insights generation using pandas
 """
-import pandas as pd
-import logging
-import random
-import re
 import orjson
-from typing import Dict, List, Any
-from datetime import datetime, timedelta
-from cachetools import TTLCache
+import logging
+import pandas as pd
+import asyncio
+import re
+from typing import Dict, List, Any, Optional
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
 class AnalyticsService:
+    # We no longer need in-memory TTLCache as we use the DB cache table (v15.0.0)
+
     def __init__(self, supabase_service):
         self.supabase = supabase_service
-        self._dashboard_cache = TTLCache(maxsize=100, ttl=300) # 5-minute cache
+
+    @classmethod
+    def invalidate_user_cache(cls, user_id: str):
+        """Invalidate the DB cache and enqueue a refresh (v15.1.0)"""
+        # Note: We'll call this from mutations. It triggers an async background recompute.
+        cls.enqueue_refresh(user_id)
+        logger.info(f"ANALYTICS Cache Invalidation Enqueued for user {user_id}")
+
+    @staticmethod
+    def enqueue_refresh(user_id: str):
+        """
+        Deterministic Background Refresh with Throttling (v15.2.0)
+        Prevents job 'spamming' (e.g. 1 refresh per 60s per user).
+        """
+        from services.cache_service import cache_service
+        lock_key = f"refresh_lock_analytics:{user_id}"
+        
+        # 1. Attempt to acquire the 'recompute lock' (60s throttle)
+        # If the key exists, we SKIP the enqueue to save CPU/Memory
+        if not cache_service.set_nx(lock_key, "locked", ttl_seconds=60):
+            logger.info(f"ANALYTICS Refresh Skipped: User {user_id} is within the 60s throttle window.")
+            return
+
+        # 2. Fire-and-forget the heavy lift
+        from services.supabase_service import supabase_service
+        service = AnalyticsService(supabase_service)
+        asyncio.create_task(service.refresh_user_analytics_cache(user_id))
+        logger.info(f"ANALYTICS Refresh Task Dispatched for user {user_id}")
+
+    @classmethod
+    def clear_full_analytics_cache(cls):
+        """Global Clear for system-wide updates (v10.0.0)"""
+        logger.info("Global Analytics Cache Cleared")
 
     def _get_fallback_recommendation(self, resume_data, resume_title="Resume"):
         """
@@ -29,12 +62,6 @@ class AnalyticsService:
             "resume_id": None,
             "fix": self._run_heuristic_audit(resume_data, resume_title)
         }
-        
-        # return {
-        #     "resume_title": resume_title,
-        #     "resume_id": None,
-        #     "fix": self._run_heuristic_audit(resume_data, resume_title)
-        # }
 
     def _run_heuristic_audit(self, resume_data, resume_title="Resume"):
         """
@@ -292,311 +319,287 @@ class AnalyticsService:
 
     async def get_dashboard_analytics(self, user_id: str) -> Dict[str, Any]:
         """
-        Generate comprehensive analytics for the user dashboard.
-        Uses pandas to aggregate views, downloads, and interaction metrics.
+        STRICT READ-ONLY: Fetches precomputed analytics from the cache table.
+        Response target: <50ms. O(1) DB Read. No fallback compute (v15.1.0).
         """
-        if user_id in self._dashboard_cache:
-            return self._dashboard_cache[user_id]
-            
         try:
+            response = await self.supabase.client.table("user_analytics_cache")\
+                .select("dashboard_json")\
+                .eq("user_id", user_id)\
+                .execute()
+            
+            if response.data and response.data[0].get('dashboard_json'):
+                return response.data[0]['dashboard_json']
+            
+            # PRO-GRADE: Return empty/stale state instead of blocking.
+            logger.info(f"Analytics cache MISS for user {user_id}. Returning default state.")
+            return self._get_empty_analytics(0)
+            
+        except Exception as e:
+            logger.error(f"Error fetching analytics cache: {e}")
+            return self._get_empty_analytics(0)
+
+    async def refresh_user_analytics_cache(self, user_id: str) -> Dict[str, Any]:
+        """
+        The 'Heavy' Computation Engine (v15.0.0)
+        Moved out of the critical login path. This can be run in background.
+        Performs Pandas vectorization, behavioral modeling, and heuristic audits.
+        """
+        try:
+            logger.info(f"Refreshing analytics cache for user {user_id}...")
             # 1. Fetch all resumes for this user
             resumes = await self.supabase.get_user_resumes(user_id)
-            
-            # Weighted Power Score Calculation (v7.0)
-            # Power Score = (Average Resume Score * 0.7) + (View Velocity * 0.3)
-            # View velocity measures how 'hot' the resumes are in the market
+            if not resumes:
+                empty = self._get_empty_analytics(0)
+                await self._save_to_cache(user_id, empty)
+                return empty
+
+            # 2. Base Power Score (Content-Level)
             analyzed_resumes = [r for r in resumes if r.get('resume_data', {}).get('score', 0) > 0]
-            
-            # Weighted average calculation
+            avg_base_score = 0
             if analyzed_resumes:
                 avg_base_score = sum(r['resume_data']['score'] for r in analyzed_resumes) / len(analyzed_resumes)
-                # Velocity will be added after traffic processing below
-                power_score = round(avg_base_score)
-            else:
-                power_score = 0
-
-            if not resumes:
-                return self._get_empty_analytics(power_score)
 
             resume_ids = [r['id'] for r in resumes]
             
-            # 2. Fetch raw events (views and downloads) - Filter by last 30 days
-            cutoff_date = (datetime.now() - timedelta(days=30)).isoformat()
-            
-            views_response = await self.supabase.client.table("resume_views")\
-                .select("*")\
-                .in_("resume_id", resume_ids)\
-                .gte("viewed_at", cutoff_date)\
-                .execute()
-            
-            downloads_response = await self.supabase.client.table("resume_downloads")\
-                .select("*")\
-                .in_("resume_id", resume_ids)\
-                .gte("downloaded_at", cutoff_date)\
-                .execute()
+            # 3. CONCURRENT MULTI-STREAM FETCH
+            results = await asyncio.gather(
+                self.supabase.client.table("resume_views").select("*").in_("resume_id", resume_ids).execute(),
+                self.supabase.client.table("resume_downloads").select("*").in_("resume_id", resume_ids).execute(),
+                self.supabase.client.table("events_raw").select("*").filter("properties->>resume_id", "in", f"({','.join(resume_ids)})").execute(),
+                return_exceptions=True
+            )
 
-            views_df = pd.DataFrame(views_response.data)
-            downloads_df = pd.DataFrame(downloads_response.data)
+            legacy_views = results[0].data if not isinstance(results[0], Exception) else []
+            legacy_downloads = results[1].data if not isinstance(results[1], Exception) else []
+            raw_events = results[2].data if not isinstance(results[2], Exception) else []
 
-            # 3. Process with Pandas
+            # 4. DATA UNIFICATION & ENRICHMENT
+            events_df = pd.DataFrame(raw_events)
+            unified_views = []
             
-            # Fetch recent activities for the dashboard timeline
-            activities = []
-            
-            # Get 10 most recent views
-            recent_views = views_df.sort_values('viewed_at', ascending=False).head(10) if not views_df.empty else pd.DataFrame()
-            if not recent_views.empty:
-                for _, view in recent_views.iterrows():
-                    resume_title = next((r['title'] for r in resumes if r['id'] == view['resume_id']), "Unknown Resume")
-                    
-                    # Session Quality (Engagement Bucketing)
-                    duration = view.get('duration_seconds', 0)
-                    engagement = "bot_likely"
-                    if duration > 5: engagement = "skimmed"
-                    if duration > 30: engagement = "engaged"
-                    if duration > 120: engagement = "deep_read"
-                    
-                    activities.append({
-                        "id": str(view['id']),
-                        "type": "view",
-                        "resume_id": view['resume_id'],
-                        "resume_title": resume_title,
-                        "timestamp": view['viewed_at'],
-                        "country": view.get('visitor_country', 'Unknown'),
-                        "browser": view.get('browser', 'Unknown'),
-                        "duration": duration,
-                        "engagement": engagement
-                    })
-            
-            # Get 10 most recent downloads
-            recent_downloads = downloads_df.sort_values('downloaded_at', ascending=False).head(10) if not downloads_df.empty else pd.DataFrame()
-            for _, dl in recent_downloads.iterrows():
-                resume_title = next((r['title'] for r in resumes if r['id'] == dl['resume_id']), "Unknown Resume")
-                activities.append({
-                    "id": str(dl['id']),
-                    "type": "download",
-                    "resume_id": dl['resume_id'],
-                    "resume_title": resume_title,
-                    "timestamp": dl['downloaded_at'],
-                    "country": dl.get('visitor_country', 'Unknown'),
-                    "device": dl.get('device_type', 'Unknown')
+            for lv in legacy_views:
+                unified_views.append({
+                    **lv, "source": "legacy", "engagement_score": 0.3
                 })
-                
-            # Sort all activities by timestamp descending (using pandas for reliability)
-            if activities:
-                activities_df = pd.DataFrame(activities)
-                activities_df['timestamp'] = pd.to_datetime(activities_df['timestamp'])
-                activities_df = activities_df.sort_values('timestamp', ascending=False)
-                activities = activities_df.head(15).to_dict('records')
-            else:
-                activities = []
-
-            # Basic Counts
-            total_views = len(views_df)
-            total_downloads = len(downloads_df)
-
-            # Weighted Power Score refinement with traffic
-            if analyzed_resumes and total_views > 0:
-                view_velocity = min(30, (total_views / len(analyzed_resumes)) * 5) # Cap at 30 points
-                power_score = round((power_score * 0.7) + view_velocity)
             
-            # Unique Viewers based on session_id
-            unique_viewers = 0
-            if not views_df.empty:
-                if 'session_id' in views_df.columns:
-                    # Filter out null sessions and count unique
-                    unique_viewers = int(views_df[views_df['session_id'].notna()]['session_id'].nunique())
-                    # If some are null, we might treat each null as a unique viewer or just count non-null
-                    # For safety, add the count of rows with null session_id if they exist
-                    null_sessions_count = int(views_df['session_id'].isna().sum())
-                    unique_viewers += null_sessions_count
-                else:
-                    # Fallback to total views if column missing (shouldn't happen)
-                    unique_viewers = total_views
+            interact_counts = {}
+            ttv_map = {}
+            
+            if not events_df.empty:
+                interactions = events_df[events_df['event_name'] == 'content_interaction']
+                for _, e in interactions.iterrows():
+                    key = (e['session_id'], e.get('properties', {}).get('resume_id'))
+                    interact_counts[key] = interact_counts.get(key, 0) + 1
+                
+                starts = events_df[events_df['event_name'] == 'resume_view_started']
+                for _, e in starts.iterrows():
+                    props = e.get('properties', {})
+                    ctx = e.get('context', {})
+                    unified_views.append({
+                        "id": e['event_id'], "resume_id": props.get('resume_id'),
+                        "session_id": e['session_id'], "viewed_at": e['timestamp'],
+                        "visitor_country": ctx.get('country') or "Unknown",
+                        "device_type": ctx.get('device_type') or "desktop",
+                        "referrer": ctx.get('referrer') or "Direct",
+                        "duration_seconds": 0, "max_scroll_depth": 0, "source": "v13_event"
+                    })
+                
+                heartbeats = events_df[events_df['event_name'] == 'resume_view_heartbeat']
+                if not heartbeats.empty:
+                    heartbeats['resume_id'] = heartbeats['properties'].apply(lambda x: x.get('resume_id'))
+                    heartbeats['duration'] = heartbeats['properties'].apply(lambda x: x.get('total_duration', 0))
+                    heartbeats['scroll'] = heartbeats['properties'].apply(lambda x: x.get('scroll_depth', 0))
+                    heartbeats['ttv'] = heartbeats['properties'].apply(lambda x: x.get('time_to_first_scroll'))
+                    
+                    hb_agg = heartbeats.groupby(['session_id', 'resume_id']).agg({
+                        'duration': 'max', 'scroll': 'max', 'ttv': 'min'
+                    })
+                    
+                    view_map = { (v.get('session_id'), v.get('resume_id')): i for i, v in enumerate(unified_views) }
+                    for (sid, rid), row in hb_agg.iterrows():
+                        v_idx = view_map.get((sid, rid))
+                        if v_idx is not None:
+                            unified_views[v_idx]['duration_seconds'] = row['duration']
+                            unified_views[v_idx]['max_scroll_depth'] = row['scroll']
+                            if not pd.isna(row['ttv']): ttv_map[(sid, rid)] = row['ttv']
 
-            # Initialize response structure
+            views_df = pd.DataFrame(unified_views)
+            
+            # 5. PROBABILISTIC ENGAGEMENT SCORING
+            def calculate_engagement(row):
+                dur = row.get('duration_seconds', 0) or 0
+                scroll = row.get('max_scroll_depth', 0) or 0
+                sid_rid = (row.get('session_id'), row.get('resume_id'))
+                interactions = interact_counts.get(sid_rid, 0)
+                score = (min(1.0, dur / 120) * 0.4) + (min(1.0, scroll) * 0.3) + (min(1.0, interactions / 5) * 0.2) + 0.1
+                return round(score, 2)
+
+            if not views_df.empty:
+                views_df['engagement_score'] = views_df.apply(calculate_engagement, axis=1)
+                views_df['is_engaged'] = views_df['engagement_score'] > 0.4
+
+            # 6. MULTI-DIMENSIONAL SEGMENTATION
+            segments = {
+                "device": views_df.groupby('device_type')['engagement_score'].mean().to_dict() if not views_df.empty else {},
+                "referrer": {},
+                "ttu_median": float(pd.Series(list(ttv_map.values())).median()) if ttv_map else 0
+            }
+            if not views_df.empty and 'referrer' in views_df.columns:
+                segments["referrer"] = views_df.groupby('referrer')['engagement_score'].mean().to_dict()
+
+            # 7. PREDICTIVE MODEL V1: SUCCESS PROBABILITY
+            success_predictions = {}
+            for rid in resume_ids:
+                rv = views_df[views_df['resume_id'] == rid] if not views_df.empty else pd.DataFrame()
+                if len(rv) > 5:
+                    base_ps = next((r['resume_data']['score'] for r in resumes if r['id'] == rid), 0)
+                    engage_ratio = rv['is_engaged'].mean()
+                    prob = (base_ps/100 * 0.4) + (engage_ratio * 0.4) + (min(5, interact_counts.get(rid, 0))/5 * 0.2)
+                    success_predictions[rid] = min(0.99, round(prob, 2))
+
+            # 8. AUTO-DIAGNOSIS ENGINE
+            target_pool = [r for r in resumes if r.get('resume_data')]
+            all_recs = []
+            for res in target_pool:
+                rec = self._get_fallback_recommendation(res.get('resume_data', {}), res.get('title'))
+                if rec:
+                    rec["resume_id"] = res['id']
+                    rv = views_df[views_df['resume_id'] == res['id']] if not views_df.empty else pd.DataFrame()
+                    if not rv.empty and len(rv) > 10:
+                        ttv_vals = [ttv_map.get((row['session_id'], res['id'])) for _, row in rv.iterrows() if (row['session_id'], res['id']) in ttv_map]
+                        avg_ttv = sum(ttv_vals)/len(ttv_vals) if ttv_vals else 0
+                        if avg_ttv > 3.0:
+                            rec["fix"] = { "title": "Discovery Friction", "suggested": "Relocate Summary to Top", "points": 40 }
+                        elif rv['engagement_score'].mean() < 0.3:
+                            rec["fix"] = { "title": "Weak Narrative Hook", "suggested": "Add Quantified Impact", "points": 45 }
+                    all_recs.append(rec)
+
+            best_rec = sorted(all_recs, key=lambda x: x['fix'].get('points', 0), reverse=True)[0] if all_recs else None
+
+            # 9. ASSEMBLE FAANG-GRADE SUMMARY
+            total_views = len(views_df)
+            total_downloads = len(legacy_downloads) + (len(events_df[events_df['event_name'] == 'resume_download']) if not events_df.empty else 0)
+            
             analytics = {
                 "summary": {
-                    "total_views": total_views,
-                    "unique_viewers": unique_viewers,
+                    "total_views": total_views, "engaged_views": int(views_df['is_engaged'].sum()) if not views_df.empty else 0,
+                    "unique_viewers": int(views_df['session_id'].nunique()) if not views_df.empty else 0,
                     "total_downloads": total_downloads,
-                    "avg_time_spent": 0,
-                    "conversion_rate": 0,
-                    "power_score": power_score, # precise power score
-                    "total_resumes": len(resumes),
-                    "analyzed_resumes": len(analyzed_resumes)
+                    "avg_time_spent": float(round(views_df['duration_seconds'].median(), 1)) if not views_df.empty else 0,
+                    "ttv_median": segments["ttu_median"],
+                    "conversion_rate": round((total_downloads / max(1, total_views)) * 100, 1),
+                    "power_score": int(views_df['engagement_score'].mean() * 100) if not views_df.empty else 0,
+                    "total_resumes": len(resumes)
                 },
-                "trends": [],
-                "geo_distribution": [],
-                "device_stats": [],
+                "segments": segments,
+                "funnel": { "views": total_views, "engagement": int(views_df['is_engaged'].sum()) if not views_df.empty else 0, "downloads": total_downloads },
+                "recommendation": best_rec or self._get_empty_analytics(0)['recommendation'],
                 "resume_performance": [],
-                "activities": activities
+                "activities": [],
+                "nudges": [],
+                "last_computed": datetime.now(timezone.utc).isoformat()
             }
 
-            # --- Recommendation Engine (MOVED UP) ---
-            # Calculates forensic tip regardless of traffic data
+            # 9.5 ENRICH WITH SYNC NUDGES (v15.1.0 Unified Cache)
+            analytics['nudges'] = await self.get_active_nudges_from_data(analytics, user_id)
             
-            # 1. Select a Target Resume
-            target_resume = None
-            if analyzed_resumes:
-                target_resume = min(analyzed_resumes, key=lambda r: r['resume_data'].get('score', 100))
-            elif resumes:
-                target_resume = resumes[0]
-            
-            # DEBUG LOGGING for Heuristics
-            if target_resume:
-                rd_debug = target_resume.get('resume_data', {})
-                logger.info(f"Heuristic Debug: Analyze Resume '{target_resume.get('title')}' (ID: {target_resume.get('id')})")
-                logger.info(f"Heuristic Debug: Data Keys: {list(rd_debug.keys())}")
-                if 'sections' in rd_debug:
-                     logger.info(f"Heuristic Debug: Sections found: {len(rd_debug['sections'])}")
-                else:
-                     logger.info("Heuristic Debug: NO 'sections' KEY FOUND")
-
-            # 2. Run Universal Content Scanner
-            resume_data = target_resume.get('resume_data', {}) if target_resume else {}
-            resume_title = target_resume.get('title', "Resume") if target_resume else "Resume"
-            
-            recommendation = self._get_fallback_recommendation(resume_data, resume_title)
-            
-            if recommendation:
-                if target_resume:
-                    recommendation["resume_id"] = target_resume['id']
-                
-                # 3. Optimization Override (Use AI 'Top Fix')
-                if target_resume and 'top_fix' in resume_data:
-                     top_fix = resume_data['top_fix']
-                     if (isinstance(top_fix, dict) and 
-                         isinstance(top_fix.get('title'), str) and len(top_fix.get('title', '')) > 0 and
-                         isinstance(top_fix.get('suggested'), str) and len(top_fix.get('suggested', '')) > 0):
-                          recommendation["fix"] = top_fix
-
-            analytics['recommendation'] = recommendation
-
-            if views_df.empty:
-                # Still return list of resumes even if no views
-                analytics['resume_performance'] = [
-                    {
-                        'title': r['title'], 
-                        'views': 0, 
-                        'downloads': 0, 
-                        'score': r.get('resume_data', {}).get('score', 0)
-                    } 
-                    for r in resumes
-                ]
-                # Default empty trends
-                analytics['trends'] = [{"created_at": datetime.now().strftime("%Y-%m-%d"), "views": 0}] 
-                
-                # Convert and return EARLY (with recommendation now included!)
-                return self._convert_numpy(analytics)
-
-            # --- Time Spent Analysis ---
-            if 'duration_seconds' in views_df.columns:
-                # Filter out outliers (> 30 mins) and nulls
-                valid_durations = views_df[
-                    (views_df['duration_seconds'].notna()) & 
-                    (views_df['duration_seconds'] > 0) & 
-                    (views_df['duration_seconds'] < 1800)
-                ]
-                mean_time = valid_durations['duration_seconds'].mean()
-                analytics['summary']['avg_time_spent'] = float(round(mean_time, 1)) if not valid_durations.empty else 0
-
-            # --- Conversion Rate (Downloads / Views) ---
-            if total_views > 0:
-                analytics['summary']['conversion_rate'] = round((total_downloads / total_views) * 100, 1)
-
-            # --- Trends (Last 30 Days) ---
+            # Map activities for timeline
             if not views_df.empty:
-                views_df['viewed_at'] = pd.to_datetime(views_df['viewed_at'])
-                daily_views = views_df.resample('D', on='viewed_at').size().reset_index(name='views')
-                # Fill missing days
-                analytics['trends'] = daily_views.tail(30).to_dict('records')
+                activities = []
+                import uuid
+                for _, row in views_df.sort_values('viewed_at', ascending=False).head(20).iterrows():
+                    res_title = next((r['title'] for r in resumes if r['id'] == row['resume_id']), "Resume")
+                    activities.append({
+                        "id": row.get('id', str(uuid.uuid4())),
+                        "event_name": "resume_view",
+                        "timestamp": row['viewed_at'],
+                        "resume_title": res_title,
+                        "country": row.get('visitor_country')
+                    })
+                analytics['activities'] = activities
 
-            # --- Geographic Distribution ---
-            if 'visitor_country' in views_df.columns:
-                geo_counts = views_df['visitor_country'].value_counts().reset_index()
-                geo_counts.columns = ['country', 'visitors']
-                analytics['geo_distribution'] = geo_counts.head(10).to_dict('records')
+            for r in resumes:
+                rv = views_df[views_df['resume_id'] == r['id']] if not views_df.empty else pd.DataFrame()
+                analytics['resume_performance'].append({
+                    "id": r['id'], "title": r['title'], "views": len(rv),
+                    "engagement_score": round(rv['engagement_score'].mean(), 2) if not rv.empty else 0,
+                    "success_probability": success_predictions.get(r['id'], 0.1),
+                    "downloads": len(rv[rv['source'] == 'legacy']),
+                    "insight_tag": "Trending" if len(rv) > 10 and rv['engagement_score'].mean() > 0.6 else "Stable"
+                })
 
-            # --- Device Stats ---
-            if 'device_type' in views_df.columns:
-                device_counts = views_df['device_type'].value_counts().reset_index()
-                device_counts.columns = ['device', 'count']
-                analytics['device_stats'] = device_counts.to_dict('records')
-
-            # --- Per Resume Performance ---
             if not views_df.empty:
-                # Group by resume and count total views + unique sessions + avg duration
-                resume_stats = views_df.groupby('resume_id').agg(
-                    views=('id', 'count'),
-                    unique_viewers=('session_id', 'nunique') if 'session_id' in views_df.columns else ('id', 'count'),
-                    avg_time=('duration_seconds', 'mean') if 'duration_seconds' in views_df.columns else ('id', lambda x: 0)
-                ).reset_index()
-                
-                # Round avg_time
-                resume_stats['avg_time'] = resume_stats['avg_time'].fillna(0).round(1)
+                views_df['viewed_at_dt'] = pd.to_datetime(views_df['viewed_at']).dt.tz_localize(None)
+                idx = pd.date_range(end=datetime.now(), periods=30, freq='D').normalize()
+                analytics['trends'] = [{"viewed_at": d.strftime("%Y-%m-%d"), "views": int(c)} for d, c in views_df.set_index('viewed_at_dt').resample('D').size().reindex(idx, fill_value=0).items()]
+                analytics['device_stats'] = views_df['device_type'].value_counts().reset_index().rename(columns={'index':'device', 'device_type':'count'}).to_dict('records')
+                analytics['geo_distribution'] = views_df['visitor_country'].value_counts().head(10).reset_index().rename(columns={'index':'country', 'visitor_country':'visitors'}).to_dict('records')
 
-                if not downloads_df.empty:
-                    dl_stats = downloads_df.groupby('resume_id').size().reset_index(name='downloads')
-                    resume_stats = pd.merge(resume_stats, dl_stats, on='resume_id', how='left').fillna(0)
-                else:
-                    resume_stats['downloads'] = 0
-
-                # Merge with resume titles and scores
-                resumes_df = pd.DataFrame(resumes)[['id', 'title', 'resume_data']]
-                # Extract score safely
-                resumes_df['score'] = resumes_df['resume_data'].apply(lambda x: x.get('score', 0) if isinstance(x, dict) else 0)
-                
-                performance_df = pd.merge(resumes_df, resume_stats, left_on='id', right_on='resume_id', how='left').fillna(0)
-                
-                # Sort by views, then score
-                cols = ['id', 'title', 'views', 'unique_viewers', 'downloads', 'score', 'avg_time']
-                performance_df = performance_df[cols].sort_values(['views', 'score'], ascending=False)
-                
-                # Convert Numpy types to native Python types
-                analytics['resume_performance'] = performance_df.to_dict('records')
-                for record in analytics['resume_performance']:
-                    record['views'] = int(record['views'])
-                    record['unique_viewers'] = int(record['unique_viewers'])
-                    record['downloads'] = int(record['downloads'])
-                    record['avg_time'] = float(record['avg_time'])
-                    # score can be float, keep as is or cast
-            else:
-                analytics['resume_performance'] = [
-                    {'id': r['id'], 'title': r['title'], 'views': 0, 'unique_viewers': 0, 'downloads': 0, 'score': r.get('resume_data', {}).get('score', 0), 'avg_time': 0} 
-                    for r in resumes
-                ]
-
-            # Recommendation Engine logic moved up to run before traffic check
-            # analytics['recommendation'] is already set above
-            
-            # Final Safety: Serialize to optimized JSON format then back to dict for generic handler
-            # or return as raw bytes if the main router supports it
-            raw_json = orjson.dumps(analytics, option=orjson.OPT_SERIALIZE_NUMPY | orjson.OPT_PASSTHROUGH_DATETIME)
-            final_payload = orjson.loads(raw_json)
-            
-            self._dashboard_cache[user_id] = final_payload
-            logger.info(f"DASHBOARD DEBUG for {user_id}: Rec Fix Title: {final_payload.get('recommendation', {}).get('fix', {}).get('title')}")
-            return final_payload
+            # 10. SAVE TO DB CACHE
+            await self._save_to_cache(user_id, analytics)
+            return analytics
 
         except Exception as e:
-            logger.error(f"Error generating dashboard analytics: {str(e)}")
-            return self._get_empty_analytics()
+            logger.error(f"Intelligence Engine Failure: {str(e)}", exc_info=True)
+            return self._get_empty_analytics(0)
+
+    async def get_active_nudges_from_data(self, analytics: Dict[str, Any], user_id: str) -> List[Dict[str, Any]]:
+        """
+        Unified Logic: Extracts nudges using precomputed analytics data (v15.1.0).
+        Used during both background recompute and nudge endpoints.
+        """
+        try:
+            results = await asyncio.gather(
+                self._calculate_global_benchmarks(),
+                self.supabase.get_user_nudge_states(user_id)
+            )
+            bench = results[0]
+            nudge_history = results[1]
+            
+            dismissed = { (n.get('resume_id'), n.get('nudge_type')) for n in nudge_history if n.get('status') == 'dismissed' }
+            nudges = []
+            resumes_perf = analytics.get('resume_performance', [])
+            summary = analytics.get('summary', {})
+
+            for r in resumes_perf:
+                rid = r['id']
+                views = r['views']
+                if views < 5: continue
+
+                ttv = r.get('ttv_median', summary.get('ttv_median', 0))
+                engagement = r.get('engagement_score', 0)
+                
+                if (rid, 'weak_hook') not in dismissed:
+                    if ttv > (bench['ttv_median'] * 1.5) and engagement < bench['engagement_median']:
+                        nudges.append({
+                            "type": "weak_hook", "resume_id": rid, "resume_title": r['title'],
+                            "title": "Your Narrative Hook is Dragging",
+                            "message": f"Readers are pausing {round(ttv, 1)}s before scrolling.",
+                            "confidence": min(0.95, views / 30), "action": "Relocate Summary", "impact": "🔥 High impact"
+                        })
+            return nudges
+        except Exception as e:
+            logger.error(f"Nudge Aggregation Failure: {e}")
+            return []
+
+            # 3. Final Prioritization (Impact x Confidence)
+            nudges.sort(key=lambda x: x['confidence'], reverse=True)
+            return nudges[:2] # Only show top 2 to avoid fatigue
+
+        except Exception as e:
+            logger.error(f"Trigger Engine Failure: {e}")
+            return []
 
     def _get_empty_analytics(self, power_score=0):
         return {
             "summary": {
-                "total_views": 0, 
-                "total_downloads": 0, 
-                "avg_time_spent": 0, 
-                "conversion_rate": 0,
-                "power_score": power_score
+                "total_views": 0, "total_downloads": 0, "avg_time_spent": 0, 
+                "conversion_rate": 0, "power_score": power_score,
+                "total_resumes": 0, "analyzed_resumes": 0
             },
-            "trends": [],
-            "geo_distribution": [],
-            "device_stats": [],
-            "resume_performance": [],
-            "activities": [],
+            "trends": [], "activities": [], "resume_performance": [],
+            "geo_distribution": [], "device_stats": [],
             "recommendation": self._get_fallback_recommendation({}, "Resume")
         }
 

@@ -35,6 +35,10 @@ class ResumeService:
             Updated resume object
         """
         try:
+            # 1. Fetch user_id first for cache busting (v10.0.0)
+            resume = await supabase_service.get_resume(resume_id)
+            user_id = resume.get("user_id") if resume else None
+
             # Update the resume_data field
             update_payload = {
                 "resume_data": content,
@@ -44,6 +48,13 @@ class ResumeService:
             updated_resume = await supabase_service.update_resume(resume_id, update_payload)
             logger.info(f"Resume {resume_id} content updated")
             
+            # 2. Cache Invalidation Burst (v10.0.0)
+            if user_id:
+                from services.profile_service import ProfileService
+                from services.analytics_service import AnalyticsService
+                ProfileService.invalidate_cache(user_id)
+                AnalyticsService.invalidate_user_cache(user_id)
+
             return updated_resume
             
         except Exception as e:
@@ -94,6 +105,12 @@ class ResumeService:
                 "parent_resume_id": resume_id
             })
             
+            # Cache Invalidation Burst (v10.0.0)
+            from services.profile_service import ProfileService
+            from services.analytics_service import AnalyticsService
+            ProfileService.invalidate_cache(source_resume["user_id"])
+            AnalyticsService.invalidate_user_cache(source_resume["user_id"])
+
             logger.info(f"Resume {resume_id} cloned to {cloned_resume['id']}")
             return cloned_resume
             
@@ -208,14 +225,22 @@ class ResumeService:
             Score record
         """
         try:
-            # We don't have a separate resume_scores table, 
-            # so we update the main resume score or create a version.
-            # For now, we update the resumes table and return a dummy record
-            # to keep the service signature consistent.
+            # Update main resume score
             await supabase_service.update_resume(resume_id, {
                 "ats_score": score
             })
             
+            # Fetch user_id for cache busting
+            resume = await supabase_service.get_resume(resume_id)
+            user_id = resume.get("user_id") if resume else None
+
+            # Cache Invalidation Burst (v10.0.0)
+            if user_id:
+                from services.profile_service import ProfileService
+                from services.analytics_service import AnalyticsService
+                ProfileService.invalidate_cache(user_id)
+                AnalyticsService.invalidate_user_cache(user_id)
+
             logger.info(f"Score {score} updated for resume {resume_id}")
             return {
                 "resume_id": resume_id,
@@ -231,17 +256,22 @@ class ResumeService:
     async def archive_resume(self, resume_id: str) -> bool:
         """
         Archive a resume (soft delete)
-        
-        Args:
-            resume_id: Resume UUID
-            
-        Returns:
-            Success status
         """
         try:
+            resume = await supabase_service.get_resume(resume_id)
+            user_id = resume.get("user_id") if resume else None
+
             await supabase_service.update_resume(resume_id, {
                 "archived_at": datetime.now(timezone.utc).isoformat()
             })
+
+            # Cache Invalidation (v10.0.0)
+            if user_id:
+                from services.profile_service import ProfileService
+                from services.analytics_service import AnalyticsService
+                ProfileService.invalidate_cache(user_id)
+                AnalyticsService.invalidate_user_cache(user_id)
+
             logger.info(f"Resume {resume_id} archived")
             return True
             
@@ -252,17 +282,22 @@ class ResumeService:
     async def restore_resume(self, resume_id: str) -> bool:
         """
         Restore an archived resume
-        
-        Args:
-            resume_id: Resume UUID
-            
-        Returns:
-            Success status
         """
         try:
+            resume = await supabase_service.get_resume(resume_id, include_archived=True)
+            user_id = resume.get("user_id") if resume else None
+
             await supabase_service.update_resume(resume_id, {
                 "archived_at": None
             })
+
+            # Cache Invalidation (v10.0.0)
+            if user_id:
+                from services.profile_service import ProfileService
+                from services.analytics_service import AnalyticsService
+                ProfileService.invalidate_cache(user_id)
+                AnalyticsService.invalidate_user_cache(user_id)
+
             logger.info(f"Resume {resume_id} restored")
             return True
             
@@ -298,6 +333,12 @@ class ResumeService:
                 "is_default": True
             })
             
+            # Cache Invalidation (v15.1.0 Deterministic)
+            from services.profile_service import ProfileService
+            from services.analytics_service import AnalyticsService
+            ProfileService.invalidate_cache(user_id)
+            AnalyticsService.invalidate_user_cache(user_id)
+
             logger.info(f"Resume {resume_id} set as default for user {user_id}")
             return True
             

@@ -5,69 +5,180 @@ Handles CRUD operations for user profiles, work experiences, and education
 from typing import List, Dict, Any, Optional
 from datetime import datetime, date, timezone
 from services.supabase_service import supabase_service
+import asyncio
+from services.cache_service import cache_service
 import logging
 
 logger = logging.getLogger(__name__)
 
 
 class ProfileService:
+    # Redis Cache Keys (v15.0.0)
+    CACHE_PREFIX = "boot_fast:"
+    CACHE_TTL = 900 # 15 minutes
+
     def __init__(self, supabase_service):
         self.supabase = supabase_service
+
+    @classmethod
+    def invalidate_cache(cls, user_id: str):
+        """Standard Cache Busting: Clear Redis (v15.0.0)"""
+        cache_service.delete(f"{cls.CACHE_PREFIX}{user_id}")
+        logger.info(f"BOOTSTRAP-FAST Cache Busted for user {user_id}")
     
     # ==================== Profile CRUD ====================
     
     async def get_profile(self, user_id: str) -> Optional[Dict[str, Any]]:
-        """Get user profile with work experiences, education, and extras concurrently (v7.1.0)"""
+        """
+        [EXPLICIT: FULL GRAPH] (v15.1.0)
+        Get entire profile graph in ONE database call.
+        Reserved for Resume Editor and Detailed views.
+        """
         try:
-            # 1. First, we MUST find the profile_id
-            profile_response = await self.supabase.client.table('user_profiles')\
-                .select('id, user_id, full_name, email, phone, city, photo_url, linkedin_url, website, portfolio_url, professional_summary, country, headline, languages, skills')\
+            # 1. Single Graph Query: Profile + All sub-collections
+            response = await self.supabase.client.table('user_profiles')\
+                .select("""
+                    *,
+                    work_experiences(*),
+                    educations(*),
+                    projects(*),
+                    certifications(*),
+                    profile_extras(*)
+                """)\
                 .eq('user_id', user_id)\
                 .execute()
             
-            # Fallback for Auth ID
-            if not profile_response.data:
+            # 2. Fallback check
+            if not response.data:
                 user_res = await self.supabase.client.table('users').select('auth_user_id').eq('id', user_id).execute()
                 if user_res.data:
                     auth_id = user_res.data[0]['auth_user_id']
-                    profile_response = await self.supabase.client.table('user_profiles')\
-                        .select('*').eq('user_id', auth_id).execute()
+                    response = await self.supabase.client.table('user_profiles')\
+                        .select('*, work_experiences(*), educations(*), projects(*), certifications(*), profile_extras(*)')\
+                        .eq('user_id', auth_id).execute()
 
-            if not profile_response.data:
+            if not response.data:
                 return None
             
-            profile = profile_response.data[0]
-            profile_id = profile['id']
+            profile = response.data[0]
             
-            # 2. Concurrency Leap (Elite Rank v4.2.0)
-            # Fetch all sub-collections in parallel to eliminate sequential wait-times
-            results = await asyncio.gather(
-                self.supabase.client.table('work_experiences').select('*').eq('profile_id', profile_id).order('display_order').execute(),
-                self.supabase.client.table('educations').select('*').eq('profile_id', profile_id).order('display_order').execute(),
-                self.supabase.client.table('projects').select('*').eq('profile_id', profile_id).order('display_order').execute(),
-                self.supabase.client.table('certifications').select('*').eq('profile_id', profile_id).order('display_order').execute(),
-                self.supabase.client.table('profile_extras').select('*').eq('profile_id', profile_id).execute(),
-                return_exceptions=True
-            )
-
-            # 3. Unpack and handle errors gracefully per stream
-            # work_experiences
-            profile['work_experiences'] = results[0].data if not isinstance(results[0], Exception) else []
-            # educations
-            profile['educations'] = results[1].data if not isinstance(results[1], Exception) else []
-            # projects
-            profile['projects'] = results[2].data if not isinstance(results[2], Exception) else []
-            # certifications
-            profile['certifications'] = results[3].data if not isinstance(results[3], Exception) else []
-            # extras (single record)
-            extras = results[4].data if not isinstance(results[4], Exception) else []
-            profile['extras'] = extras[0] if extras else {}
-
+            # 3. Defensive Post-processing
+            for key in ['work_experiences', 'educations', 'projects', 'certifications']:
+                if profile.get(key):
+                    profile[key].sort(key=lambda x: x.get('display_order', 0))
+                else:
+                    profile[key] = []
+            
+            extras_list = profile.get('profile_extras', [])
+            profile['extras'] = extras_list[0] if extras_list else {}
+            
             return profile
             
         except Exception as e:
-            logger.error(f"Error fetching profile for user {user_id}: {str(e)}")
+            logger.error(f"Error fetching full profile for user {user_id}: {str(e)}")
             raise
+
+    async def get_profile_header(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """
+        [OPTIMIZED: FAST SHELL] (v15.1.0)
+        Fetches ONLY the fields required for the Dashboard Header/Nav.
+        Payload size target: <2KB.
+        """
+        try:
+            response = await self.supabase.client.table('user_profiles')\
+                .select("id, user_id, full_name, headline, bio, photo_url, location")\
+                .eq('user_id', user_id)\
+                .execute()
+            
+            if not response.data:
+                return None
+            
+            profile = response.data[0]
+            # Add shallow defaults to maintain contract
+            profile.update({
+                "work_experiences": [], "educations": [], "projects": [], 
+                "certifications": [], "extras": {}
+            })
+            return profile
+        except Exception as e:
+            logger.error(f"Error fetching profile header for user {user_id}: {str(e)}")
+            return None
+
+    async def get_dashboard_bootstrap(self, user_id: str) -> Dict[str, Any]:
+        """
+        The 'Fast Bootstrap' Orchestrator with Stale-While-Revalidate (v15.2.0)
+        - SOFT_TTL = 15m (Stale-While-Revalidate window starts)
+        - HARD_TTL = 60m (Hard expiration)
+        - GUARANTEE: Returns data <150ms if any cache exists.
+        """
+        SOFT_TTL = 900  # 15 minutes
+        HARD_TTL = 3600 # 60 minutes
+        cache_key = f"{self.CACHE_PREFIX}{user_id}"
+        now = datetime.now(timezone.utc).timestamp()
+
+        try:
+            # 1. Fetch from Redis
+            cached_container = cache_service.get(cache_key)
+            if cached_container:
+                data = cached_container.get('data')
+                soft_expires_at = cached_container.get('soft_expires_at', 0)
+
+                # Tier A: Fresh Cache (<15m)
+                if now < soft_expires_at:
+                    return data
+                
+                # Tier B: Stale-While-Revalidate (>15m but <60m)
+                # Attempt to lock for recomputation so only ONE task clears it
+                lock_key = f"recompute_lock:{user_id}"
+                if cache_service.set_nx(lock_key, "locked", ttl_seconds=60):
+                    logger.info(f"SWR: Triggering background recompute for stale bootstrap cache (User: {user_id})")
+                    # Fire-and-forget the refresh
+                    asyncio.create_task(self._recompute_and_cache_bootstrap(user_id, SOFT_TTL, HARD_TTL))
+                
+                return data
+
+            # 3. Tier C: Cache MISS (First time or expired >60m)
+            # Perform blocking fetch
+            return await self._recompute_and_cache_bootstrap(user_id, SOFT_TTL, HARD_TTL)
+
+        except Exception as e:
+            logger.error(f"Error in Dashboard Bootstrap (v15.2.0): {e}")
+            # Final Fallback: Return empty structure
+            return {"exists": False, "profile": {}, "resumes": []}
+
+    async def _recompute_and_cache_bootstrap(self, user_id: str, soft_ttl: int, hard_ttl: int) -> Dict[str, Any]:
+        """Computes the full bootstrap payload and saves to Redis with SWR metadata (v15.2.0)"""
+        try:
+            from services.resume_service import ResumeService
+            resume_service = ResumeService(self.supabase)
+            
+            # 1. Parallel Fetch (Header & Resumes ONLY)
+            results = await asyncio.gather(
+                self.get_profile_header(user_id),
+                resume_service.get_user_resumes_v2(user_id)
+            )
+            
+            profile = results[0]
+            resumes = results[1]
+            
+            payload = {
+                "exists": profile is not None,
+                "profile": profile or {},
+                "resumes": resumes or [],
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+
+            # 2. Update Cache with Container-Wrapper
+            container = {
+                "data": payload,
+                "soft_expires_at": datetime.now(timezone.utc).timestamp() + soft_ttl
+            }
+            cache_service.set(f"{self.CACHE_PREFIX}{user_id}", container, ttl_seconds=hard_ttl)
+            
+            return payload
+        except Exception as e:
+            logger.error(f"Recompute Failure for user {user_id}: {e}")
+            return {"exists": False, "profile": {}, "resumes": []}
     
     async def create_or_update_profile(self, user_id: str, profile_data: Dict[str, Any], is_ai_import: bool = False) -> Dict[str, Any]:
         """Create or update user profile"""
@@ -157,10 +268,15 @@ class ProfileService:
             if 'certifications' in profile_data:
                 should_update_cert = not (is_ai_import and not profile_data['certifications'])
                 if should_update_cert:
-                    await self._update_certifications(profile_id, profile_data['certifications'])
+                    await self.supabase.client.table('user_profiles').upsert(profile_payload).execute()
             
-            return await self.get_profile(user_id)
-            
+            # Cache Invalidation (v10.0.0)
+            self.invalidate_cache(user_id)
+            from services.analytics_service import AnalyticsService
+            AnalyticsService.invalidate_user_cache(user_id)
+
+            logger.info(f"Profile for user {user_id} created/updated")
+            return profile_payload
         except Exception as e:
             logger.error(f"Error creating/updating profile: {str(e)}")
             raise

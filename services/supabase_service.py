@@ -324,6 +324,8 @@ class SupabaseService:
                 "device_type": view_data.get("device_type"),
                 "browser": view_data.get("browser"),
                 "referrer": view_data.get("referrer"),
+                "screen_size": view_data.get("screen_size"), # New behavioral signal (v11.0.0)
+                "max_scroll_depth": view_data.get("max_scroll_depth", 0), # New behavioral signal (v11.0.0)
                 "utm_source": view_data.get("utm_source"),
                 "utm_medium": view_data.get("utm_medium"),
                 "utm_campaign": view_data.get("utm_campaign"),
@@ -340,18 +342,31 @@ class SupabaseService:
             logger.error(f"Error logging view for resume {resume_id}: {str(e)}", exc_info=True)
             raise e # Re-raise to let the router handle it and return the error to the client
 
-    async def update_view_duration(self, view_id: str, duration_seconds: int) -> bool:
-        """Update the duration of a view session"""
+    async def update_view_duration(self, view_id: str, pulse_data: Any) -> bool:
+        """Update the duration and behavioral signals for a view session (v11.0.0)"""
         try:
-            # We use a custom RPC or direct update if the column exists
-            # Assuming 'duration_seconds' column exists or we need to add it
-            response = await self.client.table("resume_views")\
-                .update({"duration_seconds": duration_seconds})\
+            # Pulse data can be simple int (legacy) or dict (v11.0.0)
+            update_payload = {}
+            if isinstance(pulse_data, dict):
+                 update_payload = {
+                     "duration_seconds": pulse_data.get("duration_seconds"),
+                     "max_scroll_depth": pulse_data.get("max_scroll_depth"),
+                     "is_active": pulse_data.get("is_active", True),
+                     "exit_point": pulse_data.get("exit_point")
+                 }
+            else:
+                 update_payload = {"duration_seconds": pulse_data}
+
+            # Filter out None values to avoid overwriting existing data with nulls
+            update_payload = {k: v for k, v in update_payload.items() if v is not None}
+
+            await self.client.table("resume_views")\
+                .update(update_payload)\
                 .eq("id", view_id)\
                 .execute()
             return True
         except Exception as e:
-            logger.error(f"Error updating view duration: {str(e)}")
+            logger.error(f"Error updating behavioral heartbeat: {str(e)}")
             return False
     
     async def log_profile_view(self, profile_user_id: str, view_data: Dict[str, Any]) -> bool:
@@ -699,6 +714,55 @@ class SupabaseService:
             return True
         except Exception as e:
             logger.error(f"Error creating audit log: {str(e)}")
+            return False
+
+    # ============================================
+    # NUDGE ENGINE (v14.0.0)
+    # ============================================
+
+    async def get_user_nudge_states(self, user_id: str) -> List[Dict[str, Any]]:
+        """Fetch all nudge states for a user to avoid repeats."""
+        try:
+            response = await self.client.table("user_nudge_state")\
+                .select("*")\
+                .eq("user_id", user_id)\
+                .execute()
+            return response.data
+        except Exception as e:
+            logger.error(f"Error fetching nudge states: {str(e)}")
+            return []
+
+    async def update_user_nudge_state(self, user_id: str, nudge_type: str, resume_id: str, status: str, confidence: float = 0.0) -> bool:
+        """Upsert a nudge state (seen/dismissed/acted)."""
+        try:
+            data = {
+                "user_id": user_id,
+                "nudge_type": nudge_type,
+                "resume_id": resume_id,
+                "status": status,
+                "confidence_at_trigger": confidence,
+                "updated_at": datetime.utcnow().isoformat()
+            }
+            # Use upsert based on user/resume/type composite (if unique constraint existed)
+            # For now, we update if exists, else insert
+            existing = await self.client.table("user_nudge_state")\
+                .select("id")\
+                .eq("user_id", user_id)\
+                .eq("nudge_type", nudge_type)\
+                .eq("resume_id", resume_id)\
+                .execute()
+
+            if existing.data:
+                await self.client.table("user_nudge_state")\
+                    .update(data)\
+                    .eq("id", existing.data[0]["id"])\
+                    .execute()
+            else:
+                await self.client.table("user_nudge_state").insert(data).execute()
+            
+            return True
+        except Exception as e:
+            logger.error(f"Error updating nudge state: {str(e)}")
             return False
 
 # Global instance
