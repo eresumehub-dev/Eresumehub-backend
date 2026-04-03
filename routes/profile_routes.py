@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Request
 from typing import Dict, Any, Optional
 import logging
 import asyncio
-from utils.auth_deps import get_current_user_ids
+from utils.auth_deps import get_current_user_id
 from services.supabase_service import supabase_service
 from services.profile_service import ProfileService
 
@@ -12,10 +12,9 @@ logger = logging.getLogger(__name__)
 profile_service = ProfileService(supabase_service)
 
 @router.get("")
-async def get_user_profile_endpoint(user = Depends(get_current_user_ids)):
-    """Get user's complete profile using standard platform_user_id."""
+async def get_user_profile_endpoint(user_id: str = Depends(get_current_user_id)):
+    """Get user's complete profile using canonical auth_user_id."""
     try:
-        user_id = user["platform_user_id"]
         # Use a safety timeout to prevent hanging the event loop (Identified in review)
         try:
             profile = await asyncio.wait_for(
@@ -23,7 +22,7 @@ async def get_user_profile_endpoint(user = Depends(get_current_user_ids)):
                 timeout=Config.AI_REQUEST_TIMEOUT 
             )
         except asyncio.TimeoutError:
-            logger.error(f"Profile fetch timed out for platform_user_id {user_id}")
+            logger.error(f"Profile fetch timed out for user {user_id}")
             return {"profile": None, "exists": False, "error": "Database timeout"}
             
         if not profile:
@@ -49,11 +48,10 @@ async def get_user_profile_endpoint(user = Depends(get_current_user_ids)):
 @router.post("")
 async def create_or_update_profile_endpoint(
     profile_data: dict,
-    user = Depends(get_current_user_ids)
+    user_id: str = Depends(get_current_user_id)
 ):
-    """Create or update user profile with transaction safety (Platform ID)."""
+    """Create or update user profile with transaction safety (Auth UUID)."""
     try:
-        user_id = user["platform_user_id"]
         profile = await asyncio.wait_for(
             profile_service.create_or_update_profile(user_id, profile_data),
             timeout=Config.AI_REQUEST_TIMEOUT 

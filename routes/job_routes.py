@@ -2,7 +2,7 @@ from fastapi import APIRouter, Request, HTTPException, Depends
 from typing import Dict, Any, Optional
 import logging
 from rq.job import Job
-from utils.auth_deps import get_current_user_ids
+from utils.auth_deps import get_current_user_id
 from schemas.resume_schemas import JobStatusResponse
 from fastapi.concurrency import run_in_threadpool
 
@@ -14,22 +14,21 @@ async def _fetch_job_safely(job_id: str, redis_conn) -> Job:
     return await run_in_threadpool(Job.fetch, job_id, connection=redis_conn)
 
 @router.get("/jobs/{job_id}", response_model=JobStatusResponse)
-async def get_job_status(job_id: str, request: Request, user: Dict[str, Any] = Depends(get_current_user_ids)):
-    """Async status polling with ownership validation & security shielding."""
+async def get_job_status(job_id: str, request: Request, user_id: str = Depends(get_current_user_id)):
+    """Async status polling with ownership validation & security shielding (Auth UUID)."""
     request_id = getattr(request.state, "request_id", "unknown")
     try:
         if not hasattr(request.app.state, "redis") or not request.app.state.redis:
             raise HTTPException(status_code=503, detail="Job system unavailable")
             
-        # ⚡ 1. Offload Blocking Fetch (Staff+ Performance)
+        # ⚡ 1. Offload Blocking Fetch
         job = await _fetch_job_safely(job_id, request.app.state.redis)
         
-        # 🔒 2. Distributed-Safe Ownership Validation (Staff+ Security)
-        user_id = str(user["platform_user_id"])
+        # 🔒 2. Ownership Validation (Auth UUID)
         job_meta = job.meta or {}
         job_owner_id = job_meta.get("user_id")
         
-        # Guard: Ensure IDs are compared as strings (Redis often returns bytes)
+        # Guard: Compare canonical IDs
         if job_owner_id and str(job_owner_id) != user_id:
             logger.warning(f"[{request_id}] FORBIDDEN: User {user_id} tried to poll job {job_id} owned by {job_owner_id}")
             raise HTTPException(status_code=403, detail="Unauthorized access to this job")

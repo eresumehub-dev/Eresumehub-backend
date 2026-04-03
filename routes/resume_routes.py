@@ -25,17 +25,19 @@ from fastapi.concurrency import run_in_threadpool
 async def create_new_resume(
     request: Request,
     data: CreateResumeRequest,
-    user: Dict[str, Any] = Depends(get_current_user_ids)
+    user_id: str = Depends(get_current_user_id)
 ):
-    """Create a new resume with AI content generation & Idempotent Deduplication (Staff+ Elite)."""
-    user_id = user["platform_user_id"]
+    """Create a new resume with AI content generation & Idempotent Deduplication (Auth UUID)."""
     request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
     
     if not hasattr(request.app.state, "rq_queue") or not request.app.state.rq_queue:
         raise HTTPException(status_code=503, detail="Background worker system is offline")
 
-    # 1. Generate Idempotency Key (SHA-256 of User + Action + Payload)
-    # This prevents expensive AI generations if the user spams the button
+    # 1. Pipeline Identity Context (v16.2.0)
+    # We pass a minimal user dict to maintain pipeline compatibility while enforcing Auth ID
+    user_ctx = {"platform_user_id": user_id, "auth_user_id": user_id}
+
+    # 1. Generate Idempotency Key
     payload_json = json.dumps(data.model_dump(), sort_keys=True)
     idempotency_hash = hashlib.sha256(f"{user_id}:create:{payload_json}".encode()).hexdigest()
     idempotency_key = f"idempotency:{idempotency_hash}"
@@ -46,27 +48,24 @@ async def create_new_resume(
         logger.info(f"[{request_id}] Idempotent HIT for user {user_id}. Returning existing job {existing_job_id}")
         return {"success": True, "job_id": existing_job_id.decode() if isinstance(existing_job_id, bytes) else existing_job_id, "idempotent": True}
 
-    # 3. Distributed Debounce (Coarse Lock)
+    # 3. Distributed Debounce
     debounce_key = f"debounce:create:{user_id}"
     if await request.app.state.redis.get(debounce_key):
         raise HTTPException(status_code=429, detail="Request already in progress.")
     
-    # 4. Enqueue Job with Threadpool Safety
+    # 4. Enqueue Job
     start_time = time.time()
     try:
-        # Atomic debounce for 30s
         await request.app.state.redis.setex(debounce_key, 30, "1")
         
         job_data = data.model_dump()
         job_data["action"] = "create"
         job_id = f"job:{user_id}:{uuid.uuid4()}"
         
-        # Staff+ Safety: Offload the blocking Redis/RQ '.enqueue()' call
-        # Route to High-Priority queue for user-facing generation
         job = await run_in_threadpool(
             request.app.state.high_queue.enqueue,
             run_pipeline_job,
-            args=(request_id, user, job_data),
+            args=(request_id, user_ctx, job_data),
             job_id=job_id,
             result_ttl=3600,
             job_timeout=300,
@@ -76,8 +75,6 @@ async def create_new_resume(
         
         elapsed = (time.time() - start_time) * 1000
         logger.info(f"[{request_id}] Job {job_id} enqueued in {elapsed:.2f}ms")
-        
-        # 5. Store Idempotency Key (expires in 5 mins)
         await request.app.state.redis.setex(idempotency_key, 300, job_id)
         
         return {"success": True, "job_id": job.get_id()}
@@ -86,7 +83,6 @@ async def create_new_resume(
         await request.app.state.redis.delete(debounce_key)
         await request.app.state.redis.delete(idempotency_key)
         raise HTTPException(status_code=500, detail="Internal server error")
-    # Debounce is NOT popped here - it will be popped by the worker or TTL
 
 @router.post("/resume/improve")
 async def improve_existing_resume(
@@ -94,19 +90,18 @@ async def improve_existing_resume(
     file: UploadFile = File(...),
     country: str = Form("Germany"),
     job_description: str = Form(""),
-    user = Depends(get_current_user_ids)
+    user_id: str = Depends(get_current_user_id)
 ):
-    """Staff+ Hardened Resume Improvement Flow."""
+    """Staff+ Hardened Resume Improvement Flow (Auth UUID)."""
     from utils.file_processor import FileProcessor
     import os
     
     request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
-    user_id = user["platform_user_id"]
+    user_ctx = {"platform_user_id": user_id, "auth_user_id": user_id}
     
     if not hasattr(request.app.state, "rq_queue") or not request.app.state.rq_queue:
         raise HTTPException(status_code=503, detail="Worker system offline")
 
-    # 2. Distributed Debounce
     debounce_key = f"debounce:improve:{user_id}"
     if await request.app.state.redis.get(debounce_key):
         raise HTTPException(status_code=429, detail="Analysis in progress.")
@@ -114,7 +109,6 @@ async def improve_existing_resume(
     try:
         await request.app.state.redis.setex(debounce_key, 30, "1")
         
-        # 3. Parse (AWAITED fix)
         safe_filename = FileProcessor.validate_file(file)
         ext = os.path.splitext(safe_filename)[1].lower()
         
@@ -127,11 +121,10 @@ async def improve_existing_resume(
             
         text = result["text"]
         
-        # 4. Offloaded Enqueue to High-Priority Queue
         job = await run_in_threadpool(
             request.app.state.high_queue.enqueue,
             run_pipeline_job,
-            args=(request_id, user, {
+            args=(request_id, user_ctx, {
                 "action": "improve",
                 "resume_text": text,
                 "country": country,
@@ -146,7 +139,6 @@ async def improve_existing_resume(
         
         return {"success": True, "job_id": job.get_id()}
     except HTTPException:
-        # Explicitly re-raise to preserve status codes (v3.12.0 fix)
         await request.app.state.redis.delete(debounce_key)
         raise
     except Exception as e:
@@ -156,7 +148,7 @@ async def improve_existing_resume(
 
 @router.get("/resumes", response_model=Dict[str, Any])
 async def list_user_resumes(user_id: str = Depends(get_current_user_id)):
-    """Fetch all resumes belonging to the authenticated user (Standard platform_user_id)."""
+    """Fetch all resumes belonging to the authenticated user (Auth UUID)."""
     try:
         resumes = await supabase_service.get_user_resumes(user_id)
         return {"success": True, "data": {"resumes": resumes}}

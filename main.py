@@ -1,3 +1,6 @@
+from utils.logging_config import setup_logging
+setup_logging()
+
 from fastapi import FastAPI, Request, HTTPException, Depends, Header, Query, BackgroundTasks, UploadFile, File
 from fastapi.responses import JSONResponse, StreamingResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware

@@ -319,8 +319,8 @@ class AnalyticsService:
 
     async def get_dashboard_analytics(self, user_id: str) -> Dict[str, Any]:
         """
-        STRICT READ-ONLY: Fetches precomputed analytics from the cache table.
-        Response target: <50ms. O(1) DB Read. No fallback compute (v15.1.0).
+        [STRICT V16.0.0] Canonical Read-Only: Fetches precomputed analytics from the cache table.
+        Standardized on auth_user_id. O(1) DB Read.
         """
         try:
             response = await self.supabase.client.table("user_analytics_cache")\

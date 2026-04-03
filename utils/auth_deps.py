@@ -2,13 +2,14 @@ import os
 import uuid
 import logging
 from typing import Optional, Dict, Any
-from fastapi import Header, Query, HTTPException
+from fastapi import Header, Query, HTTPException, Request
 from datetime import datetime
 from services.supabase_service import supabase_service
 
 logger = logging.getLogger(__name__)
 
 async def get_current_user_from_token(
+    request: Request,
     authorization: Optional[str] = Header(None),
     token: Optional[str] = Query(None)
 ) -> Dict[str, Any]:
@@ -126,6 +127,11 @@ async def get_current_user_from_token(
             "full_name": user_row["full_name"],
             "username": user_row["username"]
         }
+        
+        # 3. Injection into Request State for Middleware (v16.3.0)
+        request.state.user_id = auth_user_id
+        
+        return user_info
 
     except HTTPException:
         raise
@@ -134,29 +140,32 @@ async def get_current_user_from_token(
         raise HTTPException(status_code=401, detail="Authentication failed")
 
 async def get_current_user_id(
+    request: Request,
     authorization: Optional[str] = Header(None),
     token: Optional[str] = Query(None)
 ) -> str:
-    """Get the current authenticated user's platform_user_id"""
-    user = await get_current_user_from_token(authorization, token)
-    return user["platform_user_id"]
+    """Get the current authenticated user's canonical auth_user_id (v16.0.0)"""
+    user = await get_current_user_from_token(request, authorization, token)
+    return user["auth_user_id"]
 
 async def get_current_user_ids(
+    request: Request,
     authorization: Optional[str] = Header(None),
     token: Optional[str] = Query(None)
 ) -> Dict[str, Any]:
     """Get the current authenticated user with both IDs"""
-    return await get_current_user_from_token(authorization, token)
+    return await get_current_user_from_token(request, authorization, token)
 
 async def get_optional_user_id(
+    request: Request,
     authorization: Optional[str] = Header(None),
     token: Optional[str] = Query(None)
 ) -> Optional[str]:
-    """Get the current authenticated user's ID if present and valid, otherwise None"""
+    """Get the current authenticated user's canonical ID (v16.0.0) if present and valid, otherwise None"""
     try:
         if not authorization and not token:
             return None
-        user = await get_current_user_from_token(authorization, token)
-        return user.get("platform_user_id")
+        user = await get_current_user_from_token(request, authorization, token)
+        return user.get("auth_user_id")
     except Exception:
         return None

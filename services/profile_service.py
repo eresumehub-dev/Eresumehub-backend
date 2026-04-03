@@ -22,10 +22,11 @@ class ProfileService:
 
     @classmethod
     def invalidate_cache(cls, user_id: str):
-        """Standard Cache Busting: Clear Redis (v15.0.0)"""
+        """Standard Cache Busting: Clear Redis (v16.0.0)"""
+        # Canonical ID is guaranteed to be passed here from modern routers
         cache_service.delete(f"{cls.CACHE_PREFIX}{user_id}")
         logger.info(f"BOOTSTRAP-FAST Cache Busted for user {user_id}")
-    
+
     # ==================== Profile CRUD ====================
     
     async def get_profile(self, user_id: str) -> Optional[Dict[str, Any]]:
@@ -35,7 +36,8 @@ class ProfileService:
         Reserved for Resume Editor and Detailed views.
         """
         try:
-            # 1. Single Graph Query: Profile + All sub-collections
+            # 1. Canonical Identity Fetch (v16.0.0)
+            # Standardized on auth_user_id globally.
             response = await self.supabase.client.table('user_profiles')\
                 .select("""
                     *,
@@ -47,15 +49,6 @@ class ProfileService:
                 """)\
                 .eq('user_id', user_id)\
                 .execute()
-            
-            # 2. Fallback check
-            if not response.data:
-                user_res = await self.supabase.client.table('users').select('auth_user_id').eq('id', user_id).execute()
-                if user_res.data:
-                    auth_id = user_res.data[0]['auth_user_id']
-                    response = await self.supabase.client.table('user_profiles')\
-                        .select('*, work_experiences(*), educations(*), projects(*), certifications(*), profile_extras(*)')\
-                        .eq('user_id', auth_id).execute()
 
             if not response.data:
                 return None
@@ -85,6 +78,7 @@ class ProfileService:
         Payload size target: <2KB.
         """
         try:
+            # [STRICT V16.0.0] Canonical fetch only
             response = await self.supabase.client.table('user_profiles')\
                 .select("id, user_id, full_name, headline, bio, photo_url, location")\
                 .eq('user_id', user_id)\
@@ -181,23 +175,21 @@ class ProfileService:
             return {"exists": False, "profile": {}, "resumes": []}
     
     async def create_or_update_profile(self, user_id: str, profile_data: Dict[str, Any], is_ai_import: bool = False) -> Dict[str, Any]:
-        """Create or update user profile"""
+        """Create or update user profile using canonical ID (v16.0.0)"""
         try:
-            # Standard Identity Logic (v3.16.0)
-            # Ensure we update the correct profile, preferring Auth ID for the FK
-            user_res = await self.supabase.client.table('users').select('auth_user_id').eq('id', user_id).execute()
-            auth_user_id = user_res.data[0]['auth_user_id'] if user_res.data else user_id
+            # Canonical Identity Enforcement (v16.0.0)
+            # auth_user_id is passed directly from routers
             
-            # Check if profile exists using Auth ID
+            # Check if profile exists using Canonical ID
             existing = await self.supabase.client.table('user_profiles')\
                 .select('*')\
-                .eq('user_id', auth_user_id)\
+                .eq('user_id', user_id)\
                 .execute()
             
             existing_profile = existing.data[0] if existing.data else None
             
             profile_payload = {
-                'user_id': auth_user_id,
+                'user_id': user_id,
                 'updated_at': datetime.now(timezone.utc).isoformat()
             }
             
@@ -268,7 +260,11 @@ class ProfileService:
             if 'certifications' in profile_data:
                 should_update_cert = not (is_ai_import and not profile_data['certifications'])
                 if should_update_cert:
-                    await self.supabase.client.table('user_profiles').upsert(profile_payload).execute()
+                    await self._update_certifications(profile_id, profile_data['certifications'])
+            
+            # Handle profile extras (Skills, Links, Translations, etc.) (v16.2.0 Alignment)
+            if 'extras' in profile_data:
+                await self._update_profile_extras(profile_id, profile_data['extras'])
             
             # Cache Invalidation (v10.0.0)
             self.invalidate_cache(user_id)
@@ -466,6 +462,31 @@ class ProfileService:
                 
         except Exception as e:
             logger.error(f"Error updating certifications: {str(e)}")
+            raise
+
+    async def _update_profile_extras(self, profile_id: str, extras: Dict[str, Any]):
+        """
+        Update profile extras (v16.2.0 Alignment). 
+        Renames 'references' -> 'reference_links' to match production schema fix.
+        """
+        try:
+            # Prepare payload with JSONB defaults
+            payload = {
+                'profile_id': profile_id,
+                'publications': extras.get('publications', []),
+                'volunteering': extras.get('volunteering', []),
+                'awards': extras.get('awards', []),
+                'interests': extras.get('interests', []),
+                'reference_links': extras.get('references') or extras.get('reference_links') or [], # Mapping fix
+                'updated_at': datetime.now(timezone.utc).isoformat()
+            }
+            
+            # Upsert (profile_extras has a UNIQUE constraint on profile_id)
+            await self.supabase.client.table('profile_extras').upsert(payload, on_conflict='profile_id').execute()
+            logger.info(f"Profile extras updated for profile {profile_id}")
+                
+        except Exception as e:
+            logger.error(f"Error updating profile extras: {str(e)}")
             raise
     
     async def add_education(self, profile_id: str, education: Dict[str, Any]) -> Dict[str, Any]:

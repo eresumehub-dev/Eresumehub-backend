@@ -16,7 +16,7 @@ class CacheService:
     Replaces in-memory TTLCache with Redis to support scaling and persist across restarts.
     Versioning (v15.1.0): Prefixes all keys with V1_PREFIX to handle schema migrations.
     """
-    VERSION_PREFIX = "v1:"
+    VERSION_PREFIX = "v2:"
 
     def __init__(self):
         try:
@@ -26,6 +26,15 @@ class CacheService:
         except Exception as e:
             logger.error(f"CacheService: Redis Connection Failed: {e}")
             self.redis = None
+
+    def flush_all(self):
+        """System-Wide Purge: Clears all Redis keys including those from legacy prefixes (v16.0.0)"""
+        if not self.redis: return
+        try:
+            self.redis.flushall()
+            logger.info("CACHE_PURGE: System-wide Redis flush executed.")
+        except Exception as e:
+            logger.error(f"Cache Flush Error: {e}")
 
     def _get_v_key(self, key: str) -> str:
         """Staff+ Version Guard: Ensures all keys are properly prefixed (v15.1.0)"""
