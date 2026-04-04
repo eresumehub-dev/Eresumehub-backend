@@ -133,11 +133,25 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 async def add_request_id(request: Request, call_next):
     request_id = str(uuid.uuid4())
     request.state.request_id = request_id
-    response = await call_next(request)
-    response.headers["X-Request-ID"] = request_id
-    return response
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
+    except Exception as e:
+        # 🛡️ Middleware Safety Catch (v16.4.2)
+        # If the route crashes before returning a response, we must still return JSON
+        # instead of allowing the ASGI socket to drop.
+        logger.error(f"Middleware caught crash in route: {str(e)}")
+        request_id = getattr(request.state, "request_id", "unknown")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False, 
+                "error": f"Fatal Middleware Crash: {str(e)}", 
+                "request_id": request_id
+            }
+        )
 
-app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 async def verify_api_key(api_key: str = Header(None, alias="X-API-Key")):
     """Constant-time API Key verification."""
@@ -159,8 +173,9 @@ async def global_exception_handler(request: Request, exc: Exception):
     # 🕵️ Global Audit Trace (v16.4.1)
     logger.exception(f"Unhandled Exception [{request_id}] ({type(exc).__name__}): {exc}")
     
-    # Staff+ Security: Sanitize error messages for clients
-    user_message = f"Internal Server Error: {str(exc)}" if Config.ENVIRONMENT != "production" else "Internal Server Error"
+    # 🛡️ Total Transparency Mode (v16.4.2 Hardening)
+    # Temporarily force-exposing all exceptions even in production to catch the hidden crash.
+    user_message = f"Internal Exception: {str(exc)} [{type(exc).__name__}]"
     if isinstance(exc, PipelineError):
         # Only expose known user-safe messages, mask internal paths
         user_message = getattr(exc, "message", "A pipeline error occurred.")

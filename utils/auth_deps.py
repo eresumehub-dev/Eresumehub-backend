@@ -120,8 +120,11 @@ async def get_current_user_from_token(
             if not user_row:
                 raise Exception("Failed to resolve or create user in database")
 
-        # 3. Injection into Request State for Middleware (v16.3.2 Alignment)
-        request.state.user_id = auth_user_id
+        # 3. Injection into Request State for Middleware (v16.4.2 Hardening)
+        try:
+            request.state.user_id = auth_user_id
+        except Exception as e:
+            logger.warning(f"Failed to inject identity into request state: {e}")
         
         return {
             "auth_user_id": auth_user_id,           # auth.users.id (Canonical)

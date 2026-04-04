@@ -65,35 +65,33 @@ class ResumePipeline:
             except Exception as e:
                 logger.warning(f"[{self.request_id}] Failed to update job meta: {e}")
 
-    @staticmethod
-    async def run_for_user(
-        request_id: str, 
-        profile_service: ProfileService, 
-        ai_service: Any,
-        supabase_service: Any,
-        analytics_service: Any,
-        user: Dict[str, Any], 
-        data: Dict[str, Any],
-        rq_job: Any = None
-    ) -> Dict[str, Any]:
-        """
-        Static entry point for the pipeline with full DI.
-        """
-        pipeline = ResumePipeline(
-            request_id, 
-            profile_service, 
-            ai_service, 
-            supabase_service, 
-            analytics_service,
-            rq_job=rq_job
-        )
-        action = data.get("action", "create")
-        if action == "improve":
-            return await pipeline._run_improve_flow(user, data)
-        elif action == "enhance":
-            return await pipeline._run_enhance_flow(user, data)
-        else:
-            return await pipeline._run_create_flow(user, data)
+    @classmethod
+    async def run_for_user(cls, request_id: str, profile_service: ProfileService, ai_service: Any, supabase_service: Any, analytics_service: Any, user: Dict[str, Any], data: Dict[str, Any], rq_job: Any = None):
+        """Staff+ Entry Point with Total Fault-Tolerance."""
+        instance = cls(request_id, profile_service, ai_service, supabase_service, analytics_service, rq_job)
+        try:
+            action = data.get("action", "create")
+            if action == "create":
+                return await instance._run_create_flow(user, data)
+            elif action == "improve":
+                return await instance._run_improve_flow(user, data)
+            elif action == "enhance":
+                return await instance._run_enhance_flow(user, data)
+            else:
+                raise PipelineError(code="INVALID_ACTION", message=f"Pipeline does not support action: {action}")
+        except Exception as e:
+            logger.error(f"[{request_id}] PIPELINE FATAL ERROR: {str(e)}")
+            # Ensure we record failure in audit even on hard crash
+            try:
+                await instance.supabase_service.create_audit_log(
+                    user_id=user.get("auth_user_id"),
+                    action=f"PIPELINE_{action.upper()}_FAILED",
+                    entity_type="pipeline",
+                    new_data={"error": str(e), "request_id": request_id}
+                )
+            except:
+                pass
+            raise
 
     # -----------------------------
     # 1. Atomic Pipeline Steps (Elite Isolation)
