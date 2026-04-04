@@ -632,3 +632,7 @@ class AnalyticsService:
         elif pd.isna(obj):  # Handle NaN/None
             return None
         return obj
+
+# Global Singleton Export (v16.4.12 Hotfix)
+from services.supabase_service import supabase_service
+analytics_service = AnalyticsService(supabase_service)
