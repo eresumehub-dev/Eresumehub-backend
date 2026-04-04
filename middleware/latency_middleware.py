@@ -11,21 +11,32 @@ class LatencyMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         start_time = time.time()
         
-        # 1. Execute Request
-        response = await call_next(request)
-        
-        # 2. Measure Duration & Size
-        duration_ms = (time.time() - start_time) * 1000
-        
-        # Capture Response Size (KB)
-        # Content-Length is the reliable source for serialized JSON
-        content_length = response.headers.get("Content-Length")
-        size_kb = round(int(content_length) / 1024, 2) if content_length else 0
-        
-        # 3. Log Asynchronously (v15.2.0 Audit)
-        asyncio.create_task(self._log_performance(request, response.status_code, duration_ms, size_kb))
-        
-        return response
+        try:
+            # 1. Execute Request
+            response = await call_next(request)
+            
+            # 2. Measure Duration & Size Safely (v16.4.3 Resilience)
+            duration_ms = (time.time() - start_time) * 1000
+            
+            # Use safe header access to prevent TypeError crash
+            content_length = response.headers.get("Content-Length")
+            try:
+                size_kb = round(int(content_length) / 1024, 2) if content_length and content_length.isdigit() else 0
+            except (ValueError, TypeError):
+                size_kb = 0
+            
+            # 3. Log Asynchronously (Fire and Forget)
+            asyncio.create_task(self._log_performance(request, response.status_code, duration_ms, size_kb))
+            
+            return response
+            
+        except Exception as e:
+            # 🛡️ Monitoring Isolation (v16.4.3)
+            # Monitoring should NEVER crash the primary response cycle.
+            # If we hit an unhandled exception here, we let it propagate 
+            # to the global_exception_handler which is forced to return JSON in main.py.
+            logger.error(f"LatencyMiddleware Failure in request execution: {e}")
+            raise
 
     async def _log_performance(self, request: Request, status_code: int, duration_ms: float, size_kb: float):
         try:
