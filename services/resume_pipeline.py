@@ -204,6 +204,7 @@ class ResumePipeline:
         # 1. Internal Idempotency Check: Look for existing resume with this request_id
         # We look inside the resume_data column since 'metadata' column is not in production schema.
         try:
+            self.logger.info(f"[{self.request_id}] Persist: Checking for existing record (Idem-Key: {self.request_id})")
             existing = await self.supabase_service.client.table("resumes")\
                 .select("*")\
                 .eq("user_id", user_id)\
@@ -243,15 +244,20 @@ class ResumePipeline:
 
         resume_id = None
         try:
+            self.logger.info(f"[{self.request_id}] Persist: Inserting into DB (User: {user_id})")
             resume = await self.supabase_service.create_resume(user_id, resume_payload)
             resume_id = resume["id"]
+            self.logger.info(f"[{self.request_id}] Persist: Resume ID {resume_id} created. Uploading PDF...")
+            
             pdf_url = await self.supabase_service.upload_resume_pdf(user_id, resume_id, pdf_bytes, f"{slug}.pdf")
             
+            self.logger.info(f"[{self.request_id}] Persist: PDF Uploaded. Updating record with URL...")
             final_resume = await self.supabase_service.update_resume(resume_id, {
                 "resume_data": enriched_data,
                 "pdf_url": pdf_url, 
                 "pdf_file_size": len(pdf_bytes)
             })
+            self.logger.info(f"[{self.request_id}] Persist: SUCCESS for {resume_id}")
             return resume_id, final_resume
         except Exception as e:
             if resume_id:
@@ -268,6 +274,10 @@ class ResumePipeline:
         start_time = datetime.now(timezone.utc)
         
         try:
+            self.logger.info(f"[{self.request_id}] Pipeline: Starting CREATE flow for {auth_user_id}")
+            # 0. Pre-flight DB Check
+            await self.supabase_service.client.table("users").select("id").limit(1).execute()
+            
             # 1. Step-Isolated Execution
             user_data = await self._step_prepare_data(user, data)
             country = await self._step_validate(user_data, data)
