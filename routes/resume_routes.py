@@ -37,8 +37,9 @@ async def create_new_resume(
     # We pass the canonical Auth UUID exclusively to prevent FK mismatches.
     user_ctx = {"auth_user_id": user_id}
 
-    # 2. Generate Idempotency Key (v16.3.2 Integrity Fix)
-    payload_json = json.dumps(data.model_dump(), sort_keys=True)
+    # 2. Generate Idempotency Key (v16.4.1 Serialization Safety)
+    # Using model_dump_json() ensures Pydantic types (EmailStr, UUID) are handled correctly.
+    payload_json = data.model_dump_json()
     idempotency_hash = hashlib.sha256(f"{user_id}:create:{payload_json}".encode()).hexdigest()
     idempotency_key = f"idempotency:{idempotency_hash}"
     
@@ -90,7 +91,8 @@ async def create_new_resume(
         logger.exception(f"[{request_id}] Resume creation failed: {e}")
         await request.app.state.redis.delete(debounce_key)
         await request.app.state.redis.delete(idempotency_key)
-        raise HTTPException(status_code=500, detail="Internal server error")
+        # Staff+ Transparency (v16.4.1): Expose the raw exception for rapid triage
+        raise HTTPException(status_code=500, detail=f"Crashed at Route: {str(e)}")
 
 @router.post("/resume/improve")
 async def improve_existing_resume(

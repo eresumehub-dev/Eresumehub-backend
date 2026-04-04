@@ -156,10 +156,11 @@ async def global_exception_handler(request: Request, exc: Exception):
     status_code = getattr(exc, "status_hint", 500)
     error_code = getattr(exc, "code", "INTERNAL_ERROR")
     
-    logger.exception(f"Unhandled Exception [{request_id}]: {exc}")
+    # 🕵️ Global Audit Trace (v16.4.1)
+    logger.exception(f"Unhandled Exception [{request_id}] ({type(exc).__name__}): {exc}")
     
     # Staff+ Security: Sanitize error messages for clients
-    user_message = "Internal Server Error"
+    user_message = f"Internal Server Error: {str(exc)}" if Config.ENVIRONMENT != "production" else "Internal Server Error"
     if isinstance(exc, PipelineError):
         # Only expose known user-safe messages, mask internal paths
         user_message = getattr(exc, "message", "A pipeline error occurred.")
