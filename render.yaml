@@ -37,34 +37,6 @@ services:
     env: python
     region: oregon
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "python worker.py"
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.0
-      - key: ERESUME_REDIS_URL
-        fromService:
-          name: eresumehub-redis
-          type: redis
-          property: internalConnectionString
-      - key: SUPABASE_URL
-        sync: false
-      - key: SUPABASE_SERVICE_KEY
-        sync: false
-      - key: GROQ_API_KEY
-        sync: false
-      - key: GEMINI_API_KEY
-        sync: false
-      - key: OPENROUTER_API_KEY
-        sync: false
-      - key: API_SECRET_KEY
-        sync: false
-      - key: X_STAFF_SECRET
-        sync: false
-      - key: AI_PROVIDER_ORDER
-        value: "groq,gemini,openrouter"
-      - key: MAX_FILE_SIZE_MB
-        value: "10"
-
 databases:
   - name: eresumehub-redis
     type: redis

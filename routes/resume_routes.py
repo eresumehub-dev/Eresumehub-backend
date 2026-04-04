@@ -8,13 +8,14 @@ import hashlib
 import json
 import hmac
 from app_settings import Config
-from services.supabase_service import supabase_service
-from services.resume_service import resume_service
-from services.resume_pipeline import ResumePipeline, run_pipeline_job
+from services.resume_pipeline import ResumePipeline
+from services.profile_service import ProfileService
+from services.ai_service import ai_service
 from schemas.resume_schemas import (
     CreateResumeRequest, UpdateResumeRequest, RefineRequest, APIResponse
 )
 from utils.auth_deps import get_current_user_id, get_current_user_ids
+from services.analytics_service import analytics_service
 
 router = APIRouter(prefix="/api/v1", tags=["Resumes"])
 logger = logging.getLogger(__name__)
@@ -60,39 +61,40 @@ async def create_new_resume(
     if await request.app.state.redis.get(debounce_key):
         raise HTTPException(status_code=429, detail="Request already in progress.")
     
-    # 4. Enqueue Job
+    # 4. Synchronous Execution (v16.4.9 Pivot)
     start_time = time.time()
     try:
-        await request.app.state.redis.setex(debounce_key, 30, "1")
+        await request.app.state.redis.setex(debounce_key, 60, "1") # 60s lock for sync flow
         
         job_data = data.model_dump()
         job_data["action"] = "create"
-        # Use Auth UUID directly from dependency
-        # user_id is the canonical Auth UUID
-        job_id = f"job:{user_id}:{uuid.uuid4()}"
         
-        job = await run_in_threadpool(
-            request.app.state.high_queue.enqueue,
-            run_pipeline_job,
-            args=(request_id, user_ctx, job_data),
-            job_id=job_id,
-            result_ttl=3600,
-            job_timeout=300,
-            retry=Retry(max=3, interval=[10, 30, 60]),
-            meta={"user_id": user_id, "request_id": request_id, "idempotency_key": idempotency_key}
+        # 🔑 Direct Pipeline Call (No Worker Tier)
+        result = await ResumePipeline.run_for_user(
+            request_id=request_id,
+            profile_service=ProfileService(supabase_service),
+            ai_service=ai_service,
+            supabase_service=supabase_service,
+            analytics_service=analytics_service,
+            user=user_ctx,
+            data=job_data
         )
         
         elapsed = (time.time() - start_time) * 1000
-        logger.info(f"[{request_id}] Job {job_id} enqueued in {elapsed:.2f}ms")
-        await request.app.state.redis.setex(idempotency_key, 300, job_id)
+        logger.info(f"[{request_id}] Resume created SYNCHRONOUSLY in {elapsed:.2f}ms")
         
-        return {"success": True, "job_id": job.get_id()}
-    except Exception as e:
-        logger.exception(f"[{request_id}] Resume creation failed: {e}")
+        # Clean up debounce lock immediately on success
         await request.app.state.redis.delete(debounce_key)
-        await request.app.state.redis.delete(idempotency_key)
-        # Staff+ Transparency (v16.4.1): Expose the raw exception for rapid triage
-        raise HTTPException(status_code=500, detail=f"Crashed at Route: {str(e)}")
+        
+        return {
+            "success": True, 
+            "data": result["data"],
+            "id": result["resume_id"]
+        }
+    except Exception as e:
+        logger.exception(f"[{request_id}] Synchronous resume creation failed: {e}")
+        await request.app.state.redis.delete(debounce_key)
+        raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
 
 @router.post("/resume/improve")
 async def improve_existing_resume(
@@ -131,30 +133,31 @@ async def improve_existing_resume(
             
         text = result["text"]
         
-        job = await run_in_threadpool(
-            request.app.state.high_queue.enqueue,
-            run_pipeline_job,
-            args=(request_id, user_ctx, {
+        # 🔑 Direct Pipeline Call (v16.4.9)
+        result = await ResumePipeline.run_for_user(
+            request_id=request_id,
+            profile_service=ProfileService(supabase_service),
+            ai_service=ai_service,
+            supabase_service=supabase_service,
+            analytics_service=analytics_service,
+            user=user_ctx,
+            data={
                 "action": "improve",
                 "resume_text": text,
                 "country": country,
                 "job_description": job_description
-            }),
-            job_id=f"improve_{user_id}_{uuid.uuid4()}",
-            result_ttl=3600,
-            job_timeout=300,
-            retry=Retry(max=3, interval=[10, 30, 60]),
-            meta={"user_id": user_id, "request_id": request_id}
+            }
         )
         
-        return {"success": True, "job_id": job.get_id()}
+        await request.app.state.redis.delete(debounce_key)
+        return {"success": True, "data": result["data"], "id": result["resume_id"]}
     except HTTPException:
         await request.app.state.redis.delete(debounce_key)
         raise
     except Exception as e:
-        logger.error(f"Improvement failed: {e}")
+        logger.error(f"Synchronous improvement failed: {e}")
         await request.app.state.redis.delete(debounce_key)
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=f"Improvement failed: {str(e)}")
 
 @router.get("/resumes", response_model=Dict[str, Any])
 async def list_user_resumes(request: Request, user_id: str = Depends(get_current_user_id)):
