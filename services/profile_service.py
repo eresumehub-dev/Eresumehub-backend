@@ -21,10 +21,10 @@ class ProfileService:
         self.supabase = supabase_service
 
     @classmethod
-    def invalidate_cache(cls, user_id: str):
+    async def invalidate_cache(cls, user_id: str):
         """Standard Cache Busting: Clear Redis (v16.0.0)"""
         # Canonical ID is guaranteed to be passed here from modern routers
-        cache_service.delete(f"{cls.CACHE_PREFIX}{user_id}")
+        await cache_service.delete(f"{cls.CACHE_PREFIX}{user_id}")
         logger.info(f"BOOTSTRAP-FAST Cache Busted for user {user_id}")
 
     # ==================== Profile CRUD ====================
@@ -112,7 +112,8 @@ class ProfileService:
 
         try:
             # 1. Fetch from Redis
-            cached_container = cache_service.get(cache_key)
+            # 🔑 Cache Hit Attempt (v16.4.5 Async Alignment)
+            cached_container = await cache_service.get(cache_key)
             if cached_container:
                 data = cached_container.get('data')
                 soft_expires_at = cached_container.get('soft_expires_at', 0)
@@ -124,7 +125,8 @@ class ProfileService:
                 # Tier B: Stale-While-Revalidate (>15m but <60m)
                 # Attempt to lock for recomputation so only ONE task clears it
                 lock_key = f"recompute_lock:{user_id}"
-                if cache_service.set_nx(lock_key, "locked", ttl_seconds=60):
+                # High-fidelity lock acquisition (v16.4.5 Async)
+                if await cache_service.set_nx(lock_key, "locked", ttl_seconds=60):
                     logger.info(f"SWR: Triggering background recompute for stale bootstrap cache (User: {user_id})")
                     # Fire-and-forget the refresh
                     asyncio.create_task(self._recompute_and_cache_bootstrap(user_id, SOFT_TTL, HARD_TTL))
@@ -167,7 +169,7 @@ class ProfileService:
                 "data": payload,
                 "soft_expires_at": datetime.now(timezone.utc).timestamp() + soft_ttl
             }
-            cache_service.set(f"{self.CACHE_PREFIX}{user_id}", container, ttl_seconds=hard_ttl)
+            await cache_service.set(f"{self.CACHE_PREFIX}{user_id}", container, ttl_seconds=hard_ttl)
             
             return payload
         except Exception as e:

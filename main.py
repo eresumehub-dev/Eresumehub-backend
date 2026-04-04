@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 from contextlib import asynccontextmanager
 import redis
+import redis.asyncio as aioredis
 from rq import Queue
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -57,24 +58,36 @@ async def lifespan(app: FastAPI):
     if hasattr(supabase_service, "initialize"):
         supabase_service.initialize(Config.SUPABASE_URL, Config.SUPABASE_KEY)
             
-    # Initialize Redis & RQ SAFELY with Diagnostics
+    # Initialize Redis & RQ SAFELY (v16.4.5 Hybrid Architecture)
     try:
         raw_url = Config.REDIS_URL
         masked_url = re.sub(r':([^@]+)@', ':****@', raw_url) if '@' in raw_url else raw_url
         logger.info(f"System Check: Redis Endpoint Identified -> {masked_url}")
         
-        redis_conn = redis.from_url(raw_url, decode_responses=False)
-        redis_conn.ping()
-        app.state.redis = redis_conn
-        app.state.high_queue = Queue('high', connection=redis_conn)
-        app.state.default_queue = Queue('default', connection=redis_conn)
-        app.state.low_queue = Queue('low', connection=redis_conn)
+        # 1. Async Handle (For routes, idempotency, debounce)
+        logger.info("Initializing Async Redis Handle...")
+        redis_async = aioredis.from_url(raw_url, decode_responses=False)
+        # We don't await ping here because it's lazy, but we can if we want to be sure
+        
+        # 2. Sync Handle (REQUIRED for RQ library)
+        logger.info("Initializing Sync Redis Handle for RQ...")
+        redis_sync = redis.from_url(raw_url, decode_responses=False)
+        redis_sync.ping() 
+        
+        app.state.redis = redis_async
+        app.state.redis_sync = redis_sync # For reference if needed
+        
+        app.state.high_queue = Queue('high', connection=redis_sync)
+        app.state.default_queue = Queue('default', connection=redis_sync)
+        app.state.low_queue = Queue('low', connection=redis_sync)
         # Legacy compatibility
         app.state.rq_queue = app.state.default_queue 
-        logger.info("Distributed Job System: Online")
+        
+        logger.info("Distributed Job System: Online (Hybrid Mode)")
     except Exception as e:
         logger.critical(f"FATAL: Redis connection failed: {e}")
         app.state.redis = None
+        app.state.redis_sync = None
         app.state.high_queue = None
         app.state.default_queue = None
         app.state.low_queue = None

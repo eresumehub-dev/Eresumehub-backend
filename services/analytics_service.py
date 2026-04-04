@@ -36,15 +36,27 @@ class AnalyticsService:
         
         # 1. Attempt to acquire the 'recompute lock' (60s throttle)
         # If the key exists, we SKIP the enqueue to save CPU/Memory
-        if not cache_service.set_nx(lock_key, "locked", ttl_seconds=60):
-            logger.info(f"ANALYTICS Refresh Skipped: User {user_id} is within the 60s throttle window.")
-            return
+        # v16.4.5 Async Alignment
+        async def _check_and_refresh():
+            if not await cache_service.set_nx(lock_key, "locked", ttl_seconds=60):
+                logger.info(f"ANALYTICS Refresh Skipped: User {user_id} is within the 60s throttle window.")
+                return
 
-        # 2. Fire-and-forget the heavy lift
-        from services.supabase_service import supabase_service
-        service = AnalyticsService(supabase_service)
-        asyncio.create_task(service.refresh_user_analytics_cache(user_id))
-        logger.info(f"ANALYTICS Refresh Task Dispatched for user {user_id}")
+            # 2. Fire-and-forget the heavy lift
+            from services.supabase_service import supabase_service
+            service = AnalyticsService(supabase_service)
+            # Create task to handle the actual refresh
+            asyncio.create_task(service.refresh_user_analytics_cache(user_id))
+            logger.info(f"ANALYTICS Refresh Task Dispatched for user {user_id}")
+
+        # Since enqueue_refresh is a staticmethod and sometimes called from sync code,
+        # we check the event loop state.
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_check_and_refresh())
+        except RuntimeError:
+            # Fallback if no loop (unlikely in FastAPI but good for scripts)
+            asyncio.run(_check_and_refresh())
 
     @classmethod
     def clear_full_analytics_cache(cls):
