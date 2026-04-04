@@ -22,6 +22,7 @@ from rq import Queue
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from middleware.request_id_middleware import RequestIDMiddleware
 from middleware.latency_middleware import LatencyMiddleware
 
 # -----------------------------
@@ -117,10 +118,12 @@ app.add_middleware(
 )
 
 # -----------------------------
-# 5. Performance Observability (v15.1.0)
+# 5. Performance Observability (v16.4.4 Convergence)
 # -----------------------------
-app.add_middleware(LatencyMiddleware)
 
+# Register in LIFO order for request-handling (FIFO for response-handling)
+app.add_middleware(RequestIDMiddleware)
+app.add_middleware(LatencyMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 print(f"BOOT_LOG: CORS Trusted Origins -> {Config.ALLOWED_ORIGINS}")
@@ -128,30 +131,6 @@ print(f"BOOT_LOG: CORS Trusted Origins -> {Config.ALLOWED_ORIGINS}")
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
-@app.middleware("http")
-async def add_request_id(request: Request, call_next):
-    request_id = str(uuid.uuid4())
-    request.state.request_id = request_id
-    try:
-        response = await call_next(request)
-        response.headers["X-Request-ID"] = request_id
-        return response
-    except Exception as e:
-        # 🛡️ Middleware Safety Catch (v16.4.2)
-        # If the route crashes before returning a response, we must still return JSON
-        # instead of allowing the ASGI socket to drop.
-        logger.error(f"Middleware caught crash in route: {str(e)}")
-        request_id = getattr(request.state, "request_id", "unknown")
-        return JSONResponse(
-            status_code=500,
-            content={
-                "success": False, 
-                "error": f"Fatal Middleware Crash: {str(e)}", 
-                "request_id": request_id
-            }
-        )
-
 
 async def verify_api_key(api_key: str = Header(None, alias="X-API-Key")):
     """Constant-time API Key verification."""
