@@ -204,12 +204,12 @@ class ResumePipeline:
         await self._update_status("Saving to Cloud Storage", 95)
         
         # 1. Internal Idempotency Check: Look for existing resume with this request_id
-        # This prevents duplicate rows if the worker retries
+        # We look inside the resume_data column since 'metadata' column is not in production schema.
         try:
             existing = await self.supabase_service.client.table("resumes")\
                 .select("*")\
                 .eq("user_id", user_id)\
-                .eq("metadata->>request_id", self.request_id)\
+                .eq("resume_data->metadata->>request_id", self.request_id)\
                 .execute()
             
             if existing.data:
@@ -220,7 +220,7 @@ class ResumePipeline:
                 # Update existing
                 pdf_url = await self.supabase_service.upload_resume_pdf(user_id, resume_id, pdf_bytes, f"{slug}.pdf")
                 final_resume = await self.supabase_service.update_resume(resume_id, {
-                    "resume_data": enriched_data,
+                    "resume_data": {**enriched_data, "metadata": {"request_id": self.request_id}},
                     "pdf_url": pdf_url,
                     "pdf_file_size": len(pdf_bytes)
                 })
@@ -230,6 +230,9 @@ class ResumePipeline:
 
         # 2. Proceed with Create if no match
         slug = f"resume-{uuid.uuid4().hex[:8]}"
+        # Ensure metadata is nested within resume_data to comply with schema
+        enriched_data["metadata"] = {"request_id": self.request_id}
+        
         resume_payload = {
             "title": job_title,
             "resume_data": enriched_data,
@@ -237,7 +240,6 @@ class ResumePipeline:
             "language": data.get("language", "English"),
             "template_style": data.get("template_style", "professional"),
             "slug": slug,
-            "metadata": {"request_id": self.request_id},
             "job_description": data.get("job_description", "")
         }
 

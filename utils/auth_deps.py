@@ -120,6 +120,9 @@ async def get_current_user_from_token(
             if not user_row:
                 raise Exception("Failed to resolve or create user in database")
 
+        # 3. Injection into Request State for Middleware (v16.3.2 Alignment)
+        request.state.user_id = auth_user_id
+        
         return {
             "platform_user_id": user_row["id"],     # public.users.id
             "auth_user_id": auth_user_id,           # auth.users.id
@@ -127,11 +130,6 @@ async def get_current_user_from_token(
             "full_name": user_row["full_name"],
             "username": user_row["username"]
         }
-        
-        # 3. Injection into Request State for Middleware (v16.3.0)
-        request.state.user_id = auth_user_id
-        
-        return user_info
 
     except HTTPException:
         raise

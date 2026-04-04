@@ -37,12 +37,18 @@ async def create_new_resume(
     # We pass a minimal user dict to maintain pipeline compatibility while enforcing Auth ID
     user_ctx = {"platform_user_id": user_id, "auth_user_id": user_id}
 
-    # 1. Generate Idempotency Key
+    # 2. Generate Idempotency Key (v16.3.2 Integrity Fix)
     payload_json = json.dumps(data.model_dump(), sort_keys=True)
     idempotency_hash = hashlib.sha256(f"{user_id}:create:{payload_json}".encode()).hexdigest()
     idempotency_key = f"idempotency:{idempotency_hash}"
     
-    # 2. Check for existing job (Idempotent Hit)
+    # 3. Infrastructure Guard (v16.3.2 Alignment)
+    # If Redis is offline, we must NOT crash with AttributeError.
+    if not hasattr(request.app.state, "redis") or not request.app.state.redis:
+        logger.error(f"[{request_id}] CRITICAL: Redis is OFFLINE. Proceeding with 503 fail-fast.")
+        raise HTTPException(status_code=503, detail="Idempotency engine is offline. Please try again in 30s.")
+
+    # 3b. Check for existing job (Idempotent Hit)
     existing_job_id = await request.app.state.redis.get(idempotency_key)
     if existing_job_id:
         logger.info(f"[{request_id}] Idempotent HIT for user {user_id}. Returning existing job {existing_job_id}")
