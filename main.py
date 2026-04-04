@@ -206,11 +206,34 @@ from utils.auth_deps import get_current_user_id
 
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(resume_router)
-# Staff+ Identity Proxy (v3.24.0): Resolve '/api/v1/user/me' to the standard 'auth.me' logic.
-from routes.auth import me as get_me_handler
+
+# -----------------------------
+# 8. Global Health & Identity (v16.4.6 Canonical)
+# -----------------------------
+from utils.auth_deps import get_current_user_from_token
+
 @app.get("/api/v1/user/me", tags=["Auth"])
 async def get_current_user_identity_proxy(request: Request):
-    return await get_me_handler(request.headers.get("Authorization"))
+    """
+    Canonical Identity Proxy (v16.4.6). 
+    Resolves identity using the hardened service layer to prevent manual route invocation regressions.
+    """
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        return JSONResponse(status_code=401, content={"success": False, "error": "Missing Authorization header"})
+        
+    try:
+        user = await get_current_user_from_token(request, auth_header)
+        return {
+            "success": True,
+            "data": user
+        }
+    except Exception as e:
+        logger.error(f"Identity Proxy Failure: {e}")
+        return JSONResponse(
+            status_code=401, 
+            content={"success": False, "error": str(e)}
+        )
 
 app.include_router(job_router)
 app.include_router(profile_router)
