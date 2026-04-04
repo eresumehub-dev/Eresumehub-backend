@@ -13,6 +13,7 @@ from services.resume_autocorrect import resume_autocorrect
 from utils.resume_validator import ResumeComplianceValidator
 from utils.pdf_utils import html_to_pdf
 from utils.html_generator import HTMLGenerator
+from app_settings import Config
 
 class PipelineError(Exception):
     """Base class for all resume pipeline failures (Staff+ Standard)."""
@@ -100,10 +101,9 @@ class ResumePipeline:
 
     async def _step_prepare_data(self, user: Dict[str, Any], data: Dict[str, Any]):
         await self._update_status("Fetching Profile Data", 10)
-        user_id = user["platform_user_id"]
-        auth_user_id = user.get("auth_user_id")
+        auth_user_id = user["auth_user_id"]
         
-        db_profile = await self.profile_service.get_profile(auth_user_id or user_id)
+        db_profile = await self.profile_service.get_profile(auth_user_id)
         user_data = {**(db_profile or {}), **data.get("user_data", {})}
         
         if "contact" not in user_data:
@@ -266,8 +266,7 @@ class ResumePipeline:
     # -----------------------------
 
     async def _run_create_flow(self, user: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:
-        """Elite Isolated Flow for Resume Creation."""
-        user_id = user["platform_user_id"]
+        auth_user_id = user["auth_user_id"]
         start_time = datetime.now(timezone.utc)
         
         try:
@@ -277,13 +276,13 @@ class ResumePipeline:
             gen_res, job_title = await self._step_generate_content(user_data, data, country)
             enriched_data, resume_content = await self._step_post_process(user_data, gen_res, country)
             pdf_bytes, enriched_data = await self._step_render_and_analyze(resume_content, enriched_data, job_title, country, data)
-            resume_id, final_resume = await self._step_persist(user_id, job_title, enriched_data, country, data, pdf_bytes)
+            resume_id, final_resume = await self._step_persist(auth_user_id, job_title, enriched_data, country, data, pdf_bytes)
 
             # 2. Audit & Metrics (Success)
             duration = (datetime.now(timezone.utc) - start_time).total_seconds()
             await self._record_metrics("success", duration)
             
-            await self.supabase_service.create_audit_log(user_id=user_id, action="RESUME_PIPELINE_COMPLETE", 
+            await self.supabase_service.create_audit_log(user_id=auth_user_id, action="RESUME_PIPELINE_COMPLETE", 
                                                         entity_type="resume", entity_id=resume_id, 
                                                         new_data={"request_id": self.request_id, "score": enriched_data["score"]})
             
@@ -313,7 +312,7 @@ class ResumePipeline:
         """
         Flow for improving an existing resume text with progress tracking.
         """
-        user_id = user["platform_user_id"]
+        auth_user_id = user["auth_user_id"]
         text = data.get("resume_text", "")
         
         # Staff+ Observability: Warning for truncation (v3.13.0)
@@ -323,7 +322,7 @@ class ResumePipeline:
         country = data.get("country", "Germany")
         job_description = data.get("job_description", "")
 
-        self.logger.info(f"[{self.request_id}] Running Improve Flow for user {user_id}")
+        self.logger.info(f"[{self.request_id}] Running Improve Flow for user {auth_user_id}")
         await self._update_status("AI Deep Analysis", 40)
 
         # 1. AI Enrichment
@@ -360,7 +359,7 @@ class ResumePipeline:
             "job_description": job_description,
             "status": "ready"
         }
-        resume = await self.supabase_service.create_resume(user_id, improve_payload)
+        resume = await self.supabase_service.create_resume(auth_user_id, improve_payload)
 
         # 2. Return result
         return {
@@ -375,20 +374,19 @@ class ResumePipeline:
         """
         Execute the pipeline for an existing resume enhancement with progress tracking.
         """
-        user_id = user["platform_user_id"]
+        auth_user_id = user["auth_user_id"]
         resume_id = data.get("resume_id")
         
         # 1. Fetch Existing State
         await self._update_status("Retrieving Resume", 10)
         self.logger.info(f"[{self.request_id}] Starting Enhancement Flow for resume {resume_id}")
         resume = await self.supabase_service.get_resume(resume_id)
-        if not user_id:
-            raise AuthorizationError(code="SESSION_EXPIRED", message="Session expired during enhancement")
+
         if not resume:
             raise PipelineError(code="NOT_FOUND", message="Resume not found", status_hint=404)
         
         owner_id = resume.get("user_id")
-        if owner_id not in [user_id, user.get("auth_user_id")]:
+        if owner_id != auth_user_id:
              raise AuthorizationError(code="FORBIDDEN", message="Not authorized to enhance this resume", status_hint=403)
 
         current_data = resume.get("resume_data", {})
@@ -431,7 +429,7 @@ class ResumePipeline:
         await self._update_status("Cloud Sync", 95)
         update_payload = {
             "resume_data": {**current_data, "summary_text": resume_content},
-            "pdf_url": await self.supabase_service.upload_resume_pdf(user_id, resume_id, pdf_bytes, f"{resume.get('slug')}.pdf"),
+            "pdf_url": await self.supabase_service.upload_resume_pdf(auth_user_id, resume_id, pdf_bytes, f"{resume.get('slug')}.pdf"),
             "pdf_file_size": len(pdf_bytes)
         }
         
@@ -473,8 +471,8 @@ async def run_pipeline_job(request_id: str, user: Dict[str, Any], data: Dict[str
         try:
             # Re-fetch keys from metadata to ensure we delete the exact ones we created
             idempotency_key = job.meta.get("idempotency_key")
-            user_id = user.get("platform_user_id")
-            debounce_key = f"debounce:{data.get('action', 'create')}:{user_id}"
+            auth_user_id = user.get("auth_user_id")
+            debounce_key = f"debounce:{data.get('action', 'create')}:{auth_user_id}"
             
             # Use synchronous execution via job connection (v3.13.0)
             cleanup_pipe = job.connection.pipeline()

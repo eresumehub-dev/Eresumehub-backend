@@ -33,9 +33,9 @@ async def create_new_resume(
     if not hasattr(request.app.state, "rq_queue") or not request.app.state.rq_queue:
         raise HTTPException(status_code=503, detail="Background worker system is offline")
 
-    # 1. Pipeline Identity Context (v16.2.0)
-    # We pass a minimal user dict to maintain pipeline compatibility while enforcing Auth ID
-    user_ctx = {"platform_user_id": user_id, "auth_user_id": user_id}
+    # 1. Pipeline Identity Context (v16.4.0 Clean Identity)
+    # We pass the canonical Auth UUID exclusively to prevent FK mismatches.
+    user_ctx = {"auth_user_id": user_id}
 
     # 2. Generate Idempotency Key (v16.3.2 Integrity Fix)
     payload_json = json.dumps(data.model_dump(), sort_keys=True)
@@ -66,6 +66,8 @@ async def create_new_resume(
         
         job_data = data.model_dump()
         job_data["action"] = "create"
+        # Use Auth UUID directly from dependency
+        # user_id is the canonical Auth UUID
         job_id = f"job:{user_id}:{uuid.uuid4()}"
         
         job = await run_in_threadpool(
@@ -103,7 +105,7 @@ async def improve_existing_resume(
     import os
     
     request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
-    user_ctx = {"platform_user_id": user_id, "auth_user_id": user_id}
+    user_ctx = {"auth_user_id": user_id}
     
     if not hasattr(request.app.state, "rq_queue") or not request.app.state.rq_queue:
         raise HTTPException(status_code=503, detail="Worker system offline")
@@ -153,14 +155,16 @@ async def improve_existing_resume(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get("/resumes", response_model=Dict[str, Any])
-async def list_user_resumes(user_id: str = Depends(get_current_user_id)):
+async def list_user_resumes(request: Request, user_id: str = Depends(get_current_user_id)):
     """Fetch all resumes belonging to the authenticated user (Auth UUID)."""
+    request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
     try:
         resumes = await supabase_service.get_user_resumes(user_id)
         return {"success": True, "data": {"resumes": resumes}}
     except Exception as e:
-        logger.error(f"Failed to list resumes for user {user_id}: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        logger.exception(f"[{request_id}] Resume generation request failed: {e}")
+        # Staff+ Transparency: Temporary str(e) for rapid field diagnosis
+        raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
 
 @router.get("/resumes/{resume_id}")
 async def get_resume_endpoint(resume_id: str, user_id: str = Depends(get_current_user_id)):

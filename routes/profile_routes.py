@@ -70,7 +70,7 @@ async def upload_profile_photo_endpoint(
     try:
         from services.supabase_service import supabase_service
         from uuid import uuid4
-        user_id = user["platform_user_id"]
+        auth_user_id = user["auth_user_id"]
         # 1. Validate Meta BEFORE Read (Staff+ Performance)
         from utils.file_processor import FileProcessor
         FileProcessor.validate_file(file) 
@@ -78,15 +78,14 @@ async def upload_profile_photo_endpoint(
         # 2. Consume stream
         contents = await file.read()
         
-        # 3. Preserve original extension (v3.12.0 fix)
         ext = file.filename.rsplit(".", 1)[-1].lower() if file.filename and "." in file.filename else "jpg"
-        filename = f"profile-{user_id}-{uuid4().hex[:8]}.{ext}"
+        filename = f"profile-{auth_user_id}-{uuid4().hex[:8]}.{ext}"
         
         # 4. Upload & Persist
-        photo_url = await supabase_service.upload_profile_picture(user_id, contents, filename)
-        await supabase_service.update_user(user_id, {"profile_image_url": photo_url})
+        image_url = await supabase_service.upload_profile_photo(auth_user_id, contents, filename)
+        await profile_service.update_profile(auth_user_id, {"profile_picture_url": image_url})
         
-        return {"success": True, "photo_url": photo_url}
+        return {"success": True, "photo_url": image_url}
     except Exception as e:
         logger.error(f"Profile photo upload failed: {e}")
         raise HTTPException(status_code=500, detail="Failed to upload photo")

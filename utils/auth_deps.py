@@ -124,8 +124,7 @@ async def get_current_user_from_token(
         request.state.user_id = auth_user_id
         
         return {
-            "platform_user_id": user_row["id"],     # public.users.id
-            "auth_user_id": auth_user_id,           # auth.users.id
+            "auth_user_id": auth_user_id,           # auth.users.id (Canonical)
             "email": user_row["email"],
             "full_name": user_row["full_name"],
             "username": user_row["username"]
