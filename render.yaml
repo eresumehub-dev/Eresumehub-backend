@@ -56,6 +56,12 @@ services:
         sync: false
       - key: OPENROUTER_API_KEY
         sync: false
+      - key: API_SECRET_KEY
+        sync: false
+      - key: X_STAFF_SECRET
+        sync: false
+      - key: AI_PROVIDER_ORDER
+        value: "groq,gemini,openrouter"
       - key: MAX_FILE_SIZE_MB
         value: "10"
 
