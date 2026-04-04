@@ -8,6 +8,8 @@ import hashlib
 import json
 import hmac
 from app_settings import Config
+from services.supabase_service import supabase_service
+from services.resume_service import resume_service
 from services.resume_pipeline import ResumePipeline
 from services.profile_service import ProfileService
 from services.ai_service import ai_service
@@ -31,9 +33,6 @@ async def create_new_resume(
     """Create a new resume with AI content generation & Idempotent Deduplication (Auth UUID)."""
     request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
     
-    if not hasattr(request.app.state, "rq_queue") or not request.app.state.rq_queue:
-        raise HTTPException(status_code=503, detail="Background worker system is offline")
-
     # 1. Pipeline Identity Context (v16.4.0 Clean Identity)
     # We pass the canonical Auth UUID exclusively to prevent FK mismatches.
     user_ctx = {"auth_user_id": user_id}
@@ -111,9 +110,6 @@ async def improve_existing_resume(
     request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
     user_ctx = {"auth_user_id": user_id}
     
-    if not hasattr(request.app.state, "rq_queue") or not request.app.state.rq_queue:
-        raise HTTPException(status_code=503, detail="Worker system offline")
-
     debounce_key = f"debounce:improve:{user_id}"
     if await request.app.state.redis.get(debounce_key):
         raise HTTPException(status_code=429, detail="Analysis in progress.")

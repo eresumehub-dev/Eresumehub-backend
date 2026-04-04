@@ -43,10 +43,7 @@ Config.validate()
 # 2. Services & Lifespan
 # -----------------------------
 from services.supabase_service import supabase_service
-from services.analytics_service import AnalyticsService
-from services.resume_pipeline import PipelineError
-
-analytics_service = AnalyticsService(supabase_service)
+from services.analytics_service import analytics_service
 logger = logging.getLogger(__name__)
 
 @asynccontextmanager
