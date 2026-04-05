@@ -32,11 +32,6 @@ services:
       - key: X_STAFF_SECRET
         generateValue: true
 
-  - type: worker
-    name: eresumehub-worker
-    env: python
-    region: oregon
-    buildCommand: "pip install -r requirements.txt"
 databases:
   - name: eresumehub-redis
     type: redis

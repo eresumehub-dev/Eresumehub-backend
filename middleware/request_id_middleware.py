@@ -24,6 +24,7 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
             # 2. Response Tagging
             if response is not None:
                 response.headers["X-Request-ID"] = request_id
+                response.headers["X-App-Version"] = "16.4.15"
                 return response
             else:
                 # 🛡️ NoneType Guard (v16.4.4 Resilience)

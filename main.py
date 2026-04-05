@@ -105,7 +105,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="EresumeHub API",
     description="Enterprise-grade ATS-friendly resume generation (Hardened v3.14.0)",
-    version="3.14.0",
+    version="16.4.15",
     lifespan=lifespan
 )
 
@@ -244,7 +244,7 @@ app.include_router(user_router)
 # -----------------------------
 @app.get("/api/health")
 async def health_check():
-    return {"status": "online", "version": "3.14.0"}
+    return {"status": "online", "version": "16.4.15"}
 
 @app.get("/api/v1/resume/{resume_id}/pdf", tags=["Resumes"])
 async def download_resume_pdf_proxied(
