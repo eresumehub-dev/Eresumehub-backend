@@ -156,7 +156,14 @@ class ResumePipeline:
         )
 
         if not generation_result.get("success"):
-            raise GenerationError(code="AI_FAIL", message="AI generation failed")
+            error_code = generation_result.get("error", "AI_FAIL")
+            user_msg = "AI generation failed"
+            if error_code == "PROVIDER_FAIL":
+                user_msg = "AI services are currently busy. Please try again in a few minutes."
+            elif error_code == "PARSE_ERROR":
+                user_msg = "AI response was malformed. Retrying usually helps."
+                
+            raise GenerationError(code=error_code, message=user_msg)
             
         return generation_result, job_title
 

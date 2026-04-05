@@ -606,13 +606,54 @@ class AIService:
         return str(res).strip() if res else f"{role} Resume"
 
     async def generate_tailored_resume(self, user_data: Dict[str, Any], job_description: str, country: str, language: str, job_title: str, request_id: str = "internal") -> Dict[str, Any]:
-        """Tailor resume content to match a specific job description."""
-        prompt = f"GOAL: Tailor this profile to EXACTLY match the JD. INPUT: {json.dumps(user_data)} JD: {job_description[:1500]}"
+        """Tailor resume content to match a specific job description with schema enforcement."""
+        schema = {
+            "professional_summary": "string (optimized for ATS)",
+            "headline": "string (professional headline)",
+            "work_experiences": [{"job_title": "str", "company": "str", "achievements": ["str"]}],
+            "skills": ["string"]
+        }
+        
+        prompt = f"""
+        TASK: Tailor the following professional profile for a '{job_title}' role in {country}.
+        LANGUAGE: {language}
+        
+        INPUT DATA: {json.dumps(user_data)}
+        JOB DESCRIPTION: {job_description[:1500]}
+        
+        RULES:
+        1. Output MUST be a valid JSON object matching the schema below.
+        2. Use '{country}'-specific professional terminology and ATS keywords.
+        3. Do NOT invent data; only refine and re-structure the existing experience.
+        4. Return ONLY the JSON object.
+        
+        SCHEMA: {json.dumps(schema)}
+        """
+        
         api_res = await self.call_model(prompt, temperature=0.4, max_tokens=3000, request_id=request_id)
+        
+        if not api_res.get("success"):
+            logger.error(f"[{request_id}] AI Provider Exhausted in generate_tailored_resume.")
+            return {"success": False, "error": "PROVIDER_FAIL"}
+
         try:
-            tailored = json.loads(self._clean_json_string(api_res.get("content")))
-            return {"success": True, "resume_content": {**user_data, **tailored}, "generated_summary": tailored.get("professional_summary", "")}
-        except Exception: return {"success": False, "error": "PARSE_ERROR"}
+            content = api_res.get("content")
+            clean_json = self._clean_json_string(content)
+            tailored = json.loads(clean_json)
+            
+            # Defensive normalization: Ensure Pydantic types (v16.4.14)
+            tailored["work_experiences"] = self._ensure_list(tailored.get("work_experiences"))
+            tailored["skills"] = self._ensure_list(tailored.get("skills"))
+            
+            # Map back to original structure
+            return {
+                "success": True, 
+                "resume_content": {**user_data, **tailored}, 
+                "generated_summary": tailored.get("professional_summary", "")
+            }
+        except Exception as e:
+            logger.error(f"[{request_id}] AI Parse Failure: {e}. Content: {api_res.get('content')[:150]}")
+            return {"success": False, "error": "PARSE_ERROR"}
 
     async def refine_text(self, selected_text: str, instruction: str, full_context: str = "", request_id: str = "refine") -> str:
         """Rewrite specific text sections based on instructions."""
