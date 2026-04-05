@@ -49,6 +49,7 @@ numpy>=1.24.0
 # pymupdf (fitz) is managed in the File Processing section.
 jinja2==3.1.4              # HTML templating
 orjson>=3.9.0              # High-performance JSON serialization
+pydyf==0.8.0               # WeasyPrint compatibility fix (v16.4.16)
 
 # ===============================
 #  DEVELOPMENT UTILITIES (REMOVED)

@@ -197,8 +197,17 @@ class ResumePipeline:
             template_style=data.get("template_style", "professional")
         )
 
+        # Staff+ Resilience: Ensure resume_content passed to analyzer is a string (v16.4.16)
+        # The AI analyzer expects a narrative text for ATS scoring.
+        analysis_content = resume_content
+        if isinstance(resume_content, dict):
+             # Format experience and skills into a readable string for AI context
+             exp_str = "\n".join([f"{e.get('job_title')} at {e.get('company')}: {', '.join(e.get('achievements', []))}" for e in resume_content.get("work_experiences", [])])
+             skills_str = ", ".join(resume_content.get("skills", []))
+             analysis_content = f"SUMMARY: {resume_content.get('professional_summary')}\nEXPERIENCE:\n{exp_str}\nSKILLS: {skills_str}"
+
         pdf_task = run_in_threadpool(html_to_pdf, html_content)
-        analysis_task = self.ai_service.analyze_resume(resume_content, job_title, country, data.get("job_description", ""))
+        analysis_task = self.ai_service.analyze_resume(analysis_content, job_title, country, data.get("job_description", ""))
         
         pdf_bytes, analysis = await asyncio.gather(pdf_task, analysis_task)
         enriched_data["score"] = analysis.get("score", 0)
