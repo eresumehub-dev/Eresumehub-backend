@@ -132,7 +132,9 @@ class ResumePipeline:
     async def _step_generate_content(self, user_data: Dict[str, Any], data: Dict[str, Any], country: str):
         await self._update_status("AI Content Tailoring", 30)
         job_description = data.get("job_description", "")
-        job_title = data.get("job_title") or data.get("user_data", {}).get("job_title")
+        
+        # Parse job title from 'title', 'job_title', or user's headline
+        job_title = data.get("title") or data.get("job_title") or data.get("user_data", {}).get("job_title") or data.get("user_data", {}).get("headline")
         
         if not job_title or job_title.strip() == "" or job_title == "Untitled Resume":
             raise GenerationError(code="VALIDATION_ERROR", message="Job title is required")
