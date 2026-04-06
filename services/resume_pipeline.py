@@ -53,6 +53,7 @@ class ResumePipeline:
         self.analytics_service = analytics_service
         self.rq_job = rq_job
         self.logger = logger
+        self.compliance_gap = []  # Persistent gap for the current run (v16.4.18)
 
     async def _update_status(self, step: str, progress: int):
         """Update the progress of the current job if available."""
