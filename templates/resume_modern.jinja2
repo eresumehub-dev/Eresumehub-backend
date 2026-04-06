@@ -154,7 +154,7 @@
             <div style="margin-bottom: 15px;">
                 <div style="font-weight: bold; font-size: 10pt;">{{ edu.degree }}</div>
                 <div style="font-size: 9.5pt;">{{ edu.institution }}</div>
-                <div style="font-size: 9pt; color: #666;">{{ edu.graduation_date }}</div>
+                <div style="font-size: 9pt; color: #666;">{% if edu.graduation_date %}{{ format_date(edu.graduation_date) }}{% endif %}</div>
             </div>
             {% endfor %}
             {% endif %}
@@ -181,69 +181,79 @@
             {% endif %}
         </div>
 
-        <!-- Main Content -->
+        <!-- Main Content (Dynamic Order to Support RAG) -->
         <div class="main-content">
             <h1>{{ user_data.full_name }}</h1>
             <div class="role-title">{{ user_data.title or job_role or 'Professional' }}</div>
 
-            {% if user_data.professional_summary or user_data.summary_text or user_data.summary %}
-            <div style="margin-bottom: 30px;">
-                <p style="font-size: 10.5pt; line-height: 1.6;">{{ user_data.professional_summary or user_data.summary_text or user_data.summary }}</p>
-            </div>
-            {% endif %}
-
-            {% if user_data.work_experiences %}
-            <div class="section-title">{{ rag_data.language_template.section_headings.experience }}</div>
-            {% for job in user_data.work_experiences %}
-            <div class="job-entry">
-                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 2px;">
-                    <tr>
-                        <td width="70%" align="left" style="vertical-align: top;" class="job-title">
-                            {{ job.job_title }}
-                        </td>
-                        <td width="30%" align="right" style="vertical-align: top;" class="job-date">
-                            {{ job.start_date }} - {{ job.end_date if job.end_date else 'Present' }}
-                        </td>
-                    </tr>
-                </table>
-                <div class="job-company">{{ job.company }} {{ ' - ' + job.location if job.location else '' }}</div>
-                
-                {% if job.achievements %}
-                <ul>
-                    {% for bullet in job.achievements %}
-                    <li>{{ bullet }}</li>
-                    {% endfor %}
-                </ul>
-                {% endif %}
-            </div>
-            {% endfor %}
-            {% endif %}
-
-            {% if user_data.projects %}
-            <div class="section-title">PROJECTS</div>
-            {% for proj in user_data.projects %}
-            <div class="job-entry">
-                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 2px;">
-                    <tr>
-                        <td width="70%" align="left" style="vertical-align: top;" class="job-title">
-                            {{ proj.title }}
-                        </td>
-                        <td width="30%" align="right" style="vertical-align: top;" class="job-date">
-                            {{ proj.start_date }} - {{ proj.end_date if proj.end_date else 'Present' }}
-                        </td>
-                    </tr>
-                </table>
-                <div class="job-company">{{ proj.role }}{{ ' | ' + proj.link if proj.link else '' }}</div>
-                
-                <div style="font-size: 10pt; margin-top: 5px;">{{ proj.description }}</div>
-                {% if proj.technologies %}
-                <div style="font-size: 9pt; color: #666; margin-top: 3px;">
-                    <strong>Stack:</strong> {{ proj.technologies|join(', ') }}
+            {% for section in section_order %}
+            
+            {% if section == 'summary' %}
+                {% if user_data.professional_summary or user_data.summary_text or user_data.summary %}
+                <div style="margin-bottom: 30px;">
+                    <div class="section-title" style="margin-top:0;">{{ rag_data.language_template.section_headings.summary|default('Professional Summary') }}</div>
+                    <p style="font-size: 10.5pt; line-height: 1.6;">{{ user_data.professional_summary or user_data.summary_text or user_data.summary }}</p>
                 </div>
                 {% endif %}
-            </div>
-            {% endfor %}
+
+            {% elif section == 'experience' %}
+                {% if user_data.work_experiences %}
+                <div class="section-title" {% if loop.index0 == 0 %}style="margin-top:0;"{% endif %}>{{ rag_data.language_template.section_headings.experience }}</div>
+                {% for job in user_data.work_experiences %}
+                <div class="job-entry">
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 2px;">
+                        <tr>
+                            <td width="70%" align="left" style="vertical-align: top;" class="job-title">
+                                {{ job.job_title }}
+                            </td>
+                            <td width="30%" align="right" style="vertical-align: top;" class="job-date">
+                                {{ format_date(job.start_date) }} - {{ format_date(job.end_date) if job.end_date else 'Present' }}
+                            </td>
+                        </tr>
+                    </table>
+                    <div class="job-company">{{ job.company }} {{ ' - ' + job.location if job.location else '' }}</div>
+                    
+                    {% if job.achievements %}
+                    <ul>
+                        {% for bullet in job.achievements %}
+                        <li>{{ bullet }}</li>
+                        {% endfor %}
+                    </ul>
+                    {% endif %}
+                </div>
+                {% endfor %}
+                {% endif %}
+
+            {% elif section == 'projects' %}
+                {% if user_data.projects %}
+                <div class="section-title">PROJECTS</div>
+                {% for proj in user_data.projects %}
+                <div class="job-entry">
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 2px;">
+                        <tr>
+                            <td width="70%" align="left" style="vertical-align: top;" class="job-title">
+                                {{ proj.title }}
+                            </td>
+                            <td width="30%" align="right" style="vertical-align: top;" class="job-date">
+                                {{ format_date(proj.start_date) }} - {{ format_date(proj.end_date) if proj.end_date else 'Present' }}
+                            </td>
+                        </tr>
+                    </table>
+                    <div class="job-company">{{ proj.role }}{{ ' | ' + proj.link if proj.link else '' }}</div>
+                    
+                    <div style="font-size: 10pt; margin-top: 5px;">{{ proj.description }}</div>
+                    {% if proj.technologies %}
+                    <div style="font-size: 9pt; color: #666; margin-top: 3px;">
+                        <strong>Stack:</strong> {{ proj.technologies|join(', ') }}
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+                {% endif %}
+            
             {% endif %}
+            {% endfor %}
+
         </div>
     </div>
 </body>
