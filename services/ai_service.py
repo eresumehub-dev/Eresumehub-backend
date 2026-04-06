@@ -605,7 +605,7 @@ class AIService:
         res = await self.call_api(prompt, temperature=0.7, max_tokens=30, request_id=request_id)
         return str(res).strip() if res else f"{role} Resume"
 
-    async def generate_tailored_resume(self, user_data: Dict[str, Any], job_description: str, country: str, language: str, job_title: str, rag_data: Dict[str, Any] = None, request_id: str = "internal") -> Dict[str, Any]:
+    async def generate_tailored_resume(self, user_data: Dict[str, Any], job_description: str, country: str, language: str, job_title: str, rag_data: Dict[str, Any] = None, compliance_gap: List[str] = None, request_id: str = "internal") -> Dict[str, Any]:
         """Tailor resume content to match a specific job description with schema enforcement."""
         schema = {
             "generated_summary": "string (strictly optimize professional summary for this ATS and role)",
@@ -620,20 +620,10 @@ class AIService:
         knowledge_base_json = json.dumps(rag_data.get("knowledge_base", {})) if rag_data else "{}"
         cv_structure_order = json.dumps(rag_data.get("knowledge_base", {}).get("cv_structure", {}).get("order", [])) if rag_data else "[]"
         
+        # 🧪 Phase 3.1: Hybrid Adaptive Prompting
         compliance_injection = ""
-        if country == "Germany":
-            missing = []
-            if not user_data.get("date_of_birth"): missing.append("Date of Birth")
-            if not user_data.get("nationality"): missing.append("Nationality")
-            
-            has_german = False
-            for lang_entry in user_data.get("languages", []):
-                lang_str = str(lang_entry).lower()
-                if "german" in lang_str: has_german = True
-            if not has_german: missing.append("German Language Proficiency (CEFR level)")
-            
-            if missing:
-                compliance_injection = f"\n        COMPLIANCE GAP (ADAPT REQUIRED):\n        The user is applying in Germany but is missing: {', '.join(missing)}. Create the resume structure as usual, but do not invent these fields. Ensure the rest of the resume is exceptionally strong to compensate."
+        if compliance_gap:
+             compliance_injection = f"\n        🚨 COMPLIANCE GAP (ADAPT REQUIRED):\n        The applicant profile is currently missing mandatory {country} fields: {', '.join(compliance_gap)}.\n        DO NOT hallucinate these values. Instead, ensure the professional summary and achievements are exceptionally strong and quantified to mitigate these missing requirements."
 
         prompt = f"""
         SYSTEM ROLE: You are an expert {country} CV writer.

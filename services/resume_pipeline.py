@@ -122,12 +122,19 @@ class ResumePipeline:
     async def _step_validate(self, user_data: Dict[str, Any], data: Dict[str, Any]):
         await self._update_status("Market Compliance Check", 20)
         country = data.get("country", user_data.get("country", "Germany"))
-        if not data.get("skip_compliance", False):
-            from utils.resume_validator import ResumeComplianceValidator
-            validation = ResumeComplianceValidator.validate(user_data, country)
-            if not validation["valid"]:
-                logger.warning(f"[{self.request_id}] Compliance validation failed")
-                raise ComplianceError(code="COMPLIANCE_ERROR", message="Mandatory fields missing.", status_hint=400)
+        
+        # Hybrid Compliance UX (v16.4.18 Hardening)
+        # We no longer hard-block on compliance fields (DOB, Nationality, etc.)
+        # Instead, we identify gaps and inject them as warnings for the AI to adapt.
+        from utils.resume_validator import ResumeComplianceValidator
+        validation = ResumeComplianceValidator.validate(user_data, country)
+        
+        if not validation["valid"]:
+            # Capture strictly the MISSING metadata fields
+            missing_fields = [err.get("field", "unknown") for err in validation.get("errors", [])]
+            self.compliance_gap = missing_fields
+            self.logger.warning(f"[{self.request_id}] ⚠️ Compliance gap detected for {country}: {missing_fields}. Continuing with AI adaptation.")
+            
         return country
 
     async def _step_generate_content(self, user_data: Dict[str, Any], data: Dict[str, Any], country: str):
@@ -155,6 +162,7 @@ class ResumePipeline:
                 language=data.get("language", "English"),
                 job_title=job_title,
                 rag_data=rag_data,
+                compliance_gap=self.compliance_gap, # 🧬 Phase 3.1: Pass gaps for adaptation
                 request_id=self.request_id
             ),
             timeout=Config.AI_REQUEST_TIMEOUT 
