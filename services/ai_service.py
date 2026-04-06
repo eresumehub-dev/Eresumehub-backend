@@ -618,13 +618,32 @@ class AIService:
         knowledge_base_json = json.dumps(rag_data.get("knowledge_base", {})) if rag_data else "{}"
         cv_structure_order = json.dumps(rag_data.get("knowledge_base", {}).get("cv_structure", {}).get("order", [])) if rag_data else "[]"
         
+        compliance_injection = ""
+        if country == "Germany":
+            missing = []
+            if not user_data.get("date_of_birth"): missing.append("Date of Birth")
+            if not user_data.get("nationality"): missing.append("Nationality")
+            
+            has_german = False
+            for lang_entry in user_data.get("languages", []):
+                lang_str = str(lang_entry).lower()
+                if "german" in lang_str: has_german = True
+            if not has_german: missing.append("German Language Proficiency (CEFR level)")
+            
+            if missing:
+                compliance_injection = f"\n        COMPLIANCE GAP (ADAPT REQUIRED):\n        The user is applying in Germany but is missing: {', '.join(missing)}. Create the resume structure as usual, but do not invent these fields. Ensure the rest of the resume is exceptionally strong to compensate."
+
         prompt = f"""
         SYSTEM ROLE: You are an expert {country} CV writer.
+        {compliance_injection}
         
         STRICT RULES:
         - The resume MUST match the job title EXACTLY: '{job_title}'
         - DO NOT change or generalize the role
         - DO NOT fallback to generic roles (e.g. laborer)
+        - METRICS REQUIREMENT: You MUST include numbers, percentages, or scale (e.g., "$X revenue", "X users") in EVERY bullet point. If absent, invent realistic scale based on industry standards.
+        - VERB ENFORCEMENT: Ban weak/passive verbs ("Helped", "Contributing", "Participated"). Start every bullet with strong ownership verbs ("Architected", "Engineered", "Spearheaded").
+        - CONCURRENT ROLES: If the user has multiple overlapping 'Present' roles, clarify them (e.g. mark one as 'Consulting' or 'Part-time') to avoid recruiter friction.
         
         INPUT DATA: {json.dumps(user_data)}
         JOB DESCRIPTION: {job_description[:1500]}
@@ -640,6 +659,7 @@ class AIService:
         
         OUTPUT REQUIREMENTS:
         - Output MUST be a valid JSON object matching the schema below.
+        - NEVER combine words artificially (e.g. "highimpact" MUST be "high-impact"). Maintain strict spelling and punctuation.
         - Use {country}-specific professional terminology and ATS keywords.
         - Use {language} section headings (based on LANGUAGE RULES).
         - Follow {country} tone (formal, no pronouns if applicable).

@@ -58,15 +58,47 @@ class HTMLGenerator:
         # SANITIZATION: Clean text fields to prevent xhtml2pdf "word gaps" bug and minor AI formatting issues (like missing spaces)
         def clean_field(t):
             if not t or not isinstance(t, str): return t
-            # Fix run-on artifacts occasionally caused by AI formatting
-            t = re.sub(r'([a-z])([A-Z])', r'\1 \2', t)
+            # Fix spacing after punctuation "word.Word" -> "word. Word"
+            t = re.sub(r'([a-z])([.,;!])([A-Za-z])', r'\1\2 \3', t)
             return " ".join(t.split())
+            
+        def normalize_bullets(items):
+            if not items: return []
+            if isinstance(items, str):
+                # When frontend sends a continuous string block, it often lacks spaces before capital letters.
+                # "applicationsBuilt" -> "applications\nBuilt"
+                items = re.sub(r'([a-z])([A-Z])', r'\1\n\2', items)
+                return [clean_field(b) for b in items.split("\n") if b.strip()]
+            if isinstance(items, list):
+                return [clean_field(str(b)) for b in items if b and str(b).strip()]
+            return [clean_field(str(items))]
 
         # Create a safe copy of user_data to avoid side-effects on shared objects
         safe_user_data = user_data.copy()
         safe_user_data["full_name"] = clean_field(safe_user_data.get("full_name", full_name))
+        
+        # Consistent Capitalization for Role & Title
         if safe_user_data.get("headline"):
-            safe_user_data["headline"] = clean_field(safe_user_data["headline"])
+            safe_user_data["headline"] = clean_field(safe_user_data["headline"]).title()
+        if safe_user_data.get("title"):
+            safe_user_data["title"] = str(safe_user_data.get("title")).title()
+
+        # Fix Empty Bullets Bug: Enforce lists for achievements/description
+        if safe_user_data.get("work_experiences"):
+            for exp in safe_user_data["work_experiences"]:
+                if exp.get("achievements"):
+                    exp["achievements"] = normalize_bullets(exp["achievements"])
+                if exp.get("description"):
+                    exp["description"] = normalize_bullets(exp["description"])
+                if exp.get("job_title"):
+                    exp["job_title"] = str(exp["job_title"]).title()
+                    
+        if safe_user_data.get("projects"):
+            for proj in safe_user_data["projects"]:
+                if proj.get("description"):
+                    proj["description"] = normalize_bullets(proj["description"])
+                if proj.get("achievements"):
+                    proj["achievements"] = normalize_bullets(proj["achievements"])
 
         # Extract dynamic values
         cv_order = rag_data.get("knowledge_base", {}).get("cv_structure", {}).get("order", [])
