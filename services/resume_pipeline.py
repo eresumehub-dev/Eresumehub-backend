@@ -1,4 +1,5 @@
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
@@ -169,7 +170,87 @@ class ResumePipeline:
                 
             raise GenerationError(code=error_code, message=user_msg)
             
-        return generation_result, job_title
+        return generation_result, job_title, rag_data
+
+    def _audit_compliance(self, resume_content: Dict[str, Any], country: str) -> List[str]:
+        """Internal Helper: Programmatic audit of the generated content."""
+        violations = []
+        
+        # 1. Metrics Check
+        metric_pattern = re.compile(r'\d+|%|\$')
+        experience = resume_content.get("experience", [])
+        for exp in experience:
+            bullets = exp.get("achievements", [])
+            if isinstance(bullets, str): bullets = [bullets]
+            for bullet in bullets:
+                if not metric_pattern.search(str(bullet)):
+                    violations.append(f"Metric missing in experience: {exp.get('job_title')} - '{bullet[:40]}...'")
+        
+        # 2. Weak Verbs Check
+        weak_verbs = ["helped", "contributing", "assisted", "participated"]
+        for exp in experience:
+            bullets = exp.get("achievements", [])
+            if isinstance(bullets, str): bullets = [bullets]
+            for bullet in bullets:
+                content_lower = str(bullet).lower()
+                for verb in weak_verbs:
+                    if content_lower.startswith(verb) or f" {verb} " in content_lower:
+                        violations.append(f"Weak verb '{verb}' found in: '{bullet[:40]}...'")
+
+        # 3. Mandatory Sections (Germany)
+        if country == "Germany":
+            if not resume_content.get("languages"):
+                violations.append("Mandatory section 'Languages' missing for Germany.")
+        
+        return violations
+
+    async def _step_validate_generated_output(self, gen_res: Dict[str, Any], country: str, rag_data: Dict[str, Any]):
+        """Staff+ Compliance Enforcement: Two-pass Audit & Correction Loop."""
+        await self._update_status("Market Compliance Audit", 60)
+        
+        current_pass = 1
+        max_passes = 2
+        
+        while current_pass <= max_passes:
+            resume_content = gen_res.get("resume_content", {})
+            violations = self._audit_compliance(resume_content, country)
+            
+            # Education Cleanup (Done every pass to ensure structural integrity)
+            education = resume_content.get("education", [])
+            original_edu_count = len(education)
+            resume_content["education"] = [
+                edu for edu in education 
+                if "pre university" not in str(edu.get("degree", "")).lower() 
+                and "junior college" not in str(edu.get("degree", "")).lower()
+            ]
+            
+            if not violations:
+                logger.info(f"[{self.request_id}] Compliance: Pass {current_pass} cleared.")
+                break
+            
+            if current_pass == max_passes:
+                logger.warning(f"[{self.request_id}] Hard Fail-Safe: Compliance failed after {max_passes} passes. Continuing with best-effort.")
+                break
+                
+            logger.warning(f"[{self.request_id}] Compliance violations found in Pass {current_pass}: {violations}")
+            await self._update_status(f"Failing Pass {current_pass}: Correcting Content", 65)
+            
+            # Correction Pass: Full JSON Regeneration
+            corrected_content = await self.ai_service.enforce_compliance_correction(
+                json_payload=resume_content,
+                violations=violations,
+                country=country,
+                request_id=self.request_id
+            )
+            
+            # Update gen_res state
+            gen_res["resume_content"] = corrected_content
+            if "generated_summary" in corrected_content:
+                gen_res["generated_summary"] = corrected_content["generated_summary"]
+            
+            current_pass += 1
+            
+        return gen_res
 
     async def _step_post_process(self, user_data: Dict[str, Any], generation_result: Dict[str, Any], country: str):
         await self._update_status("Applying Market Rules", 70)
@@ -305,7 +386,11 @@ class ResumePipeline:
             # 1. Step-Isolated Execution
             user_data = await self._step_prepare_data(user, data)
             country = await self._step_validate(user_data, data)
-            gen_res, job_title = await self._step_generate_content(user_data, data, country)
+            gen_res, job_title, rag_data = await self._step_generate_content(user_data, data, country)
+            
+            # Post-Generation Compliance Audit
+            gen_res = await self._step_validate_generated_output(gen_res, country, rag_data)
+            
             enriched_data, resume_content = await self._step_post_process(user_data, gen_res, country)
             pdf_bytes, enriched_data = await self._step_render_and_analyze(resume_content, enriched_data, job_title, country, data)
             resume_id, final_resume = await self._step_persist(auth_user_id, job_title, enriched_data, country, data, pdf_bytes)
@@ -429,18 +514,14 @@ class ResumePipeline:
 
         # 2. AI Orchestration
         await self._update_status("AI Re-Tailoring", 40)
-        generation_result = await self.ai_service.generate_tailored_resume(
+        generation_result, job_title, rag_data = await self._step_generate_content(
             user_data=current_data,
-            job_description=job_description,
-            country=country,
-            language=language,
-            job_title=title,
-            request_id=self.request_id
+            data=data,
+            country=country
         )
 
-        if not generation_result.get("success"):
-            await self._update_status("Enhancement Failed", 0)
-            raise GenerationError(code="ENHANCE_FAIL", message=f"Enhancement failed: {generation_result.get('error')}")
+        # Post-Generation Compliance Audit
+        generation_result = await self._step_validate_generated_output(generation_result, country, rag_data)
 
         # 3. Render Polished PDF
         await self._update_status("Polished PDF Rendering", 80)

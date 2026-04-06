@@ -639,7 +639,10 @@ class AIService:
         SYSTEM ROLE: You are an expert {country} CV writer.
         {compliance_injection}
         
-        STRICT RULES:
+        You MUST follow ALL rules below.
+        If ANY rule is violated → response is INVALID.
+        
+        VALIDATION RULES:
         - The resume MUST match the job title EXACTLY: '{job_title}'
         - DO NOT change or generalize the role
         - DO NOT fallback to generic roles (e.g. laborer)
@@ -720,11 +723,43 @@ class AIService:
             logger.error(f"[{request_id}] AI Parse Failure: {e}. Content: {api_res.get('content')[:150]}")
             return {"success": False, "error": "PARSE_ERROR"}
 
-    async def refine_text(self, selected_text: str, instruction: str, full_context: str = "", request_id: str = "refine") -> str:
-        """Rewrite specific text sections based on instructions."""
-        prompt = f"Rewrite: '{selected_text}' Task: '{instruction}'. Context: '{full_context[:500]}'. Return ONLY plain text."
-        res = await self.call_api(prompt, temperature=0.5, max_tokens=400, request_id=request_id)
-        return res.strip() if res else selected_text
+    async def enforce_compliance_correction(self, json_payload: Dict[str, Any], violations: List[str], country: str = "Germany", request_id: str = "correction") -> Dict[str, Any]:
+        """Force AI to fix specific compliance violations in the generated JSON via FULL regeneration."""
+        prompt = f"""
+        SYSTEM ROLE: You are an expert {country} CV auditor and re-writer.
+        
+        TASK:
+        The following JSON resume content violates strict compliance rules for the {country} market.
+        You must RE-GENERATE the ENTIRE JSON resume content from scratch to be 100% compliant.
+        
+        VIOLATIONS TO FIX:
+        {chr(10).join(['- ' + v for v in violations])}
+        
+        STRICT RE-WRITE RULES:
+        1. FULL REGENERATION: Do NOT patch partial fields. Re-generate the WHOLE JSON document for perfect tone and section coherence.
+        2. METRICS: Every single bullet point MUST now have a number, percentage, or specific scale.
+        3. VERBS: Absolutely NO "Helped", "Contributing", or "Assisted". Use "Spearheaded", "Directed", "Executed", "Engineered".
+        4. MANDATORY SECTIONS: Ensure a Language section exists with CEFR levels (A1-C2).
+        5. EDUCATION: Remove any education below Bachelor's level (e.g., High School/Pre-University).
+        
+        INPUT JSON:
+        {json.dumps(json_payload)}
+        
+        Return ONLY the corrected JSON object.
+        """
+        
+        api_res = await self.call_model(prompt, temperature=0.1, max_tokens=3000, request_id=request_id)
+        
+        if not api_res.get("success"):
+            return json_payload # Fallback to original if correction fails
+            
+        try:
+            content = api_res.get("content")
+            clean_json = self._clean_json_string(content)
+            return json.loads(clean_json)
+        except Exception as e:
+            logger.error(f"[{request_id}] AI Correction Parse Failure: {e}")
+            return json_payload
 
 # Global instance
 ai_service = AIService()
