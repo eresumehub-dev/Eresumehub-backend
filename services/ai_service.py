@@ -605,7 +605,7 @@ class AIService:
         res = await self.call_api(prompt, temperature=0.7, max_tokens=30, request_id=request_id)
         return str(res).strip() if res else f"{role} Resume"
 
-    async def generate_tailored_resume(self, user_data: Dict[str, Any], job_description: str, country: str, language: str, job_title: str, request_id: str = "internal") -> Dict[str, Any]:
+    async def generate_tailored_resume(self, user_data: Dict[str, Any], job_description: str, country: str, language: str, job_title: str, rag_data: Dict[str, Any] = None, request_id: str = "internal") -> Dict[str, Any]:
         """Tailor resume content to match a specific job description with schema enforcement."""
         schema = {
             "professional_summary": "string (optimized for ATS)",
@@ -614,21 +614,47 @@ class AIService:
             "skills": ["string"]
         }
         
+        language_template_json = json.dumps(rag_data.get("language_template", {})) if rag_data else "{}"
+        knowledge_base_json = json.dumps(rag_data.get("knowledge_base", {})) if rag_data else "{}"
+        cv_structure_order = json.dumps(rag_data.get("knowledge_base", {}).get("cv_structure", {}).get("order", [])) if rag_data else "[]"
+        
         prompt = f"""
-        TASK: Tailor the following professional profile for a '{job_title}' role in {country}.
-        LANGUAGE: {language}
+        SYSTEM ROLE: You are an expert {country} CV writer.
+        
+        STRICT RULES:
+        - The resume MUST match the job title EXACTLY: '{job_title}'
+        - DO NOT change or generalize the role
+        - DO NOT fallback to generic roles (e.g. laborer)
         
         INPUT DATA: {json.dumps(user_data)}
         JOB DESCRIPTION: {job_description[:1500]}
         
-        RULES:
-        1. Output MUST be a valid JSON object matching the schema below.
-        2. Use '{country}'-specific professional terminology and ATS keywords.
-        3. Do NOT invent data; only refine and re-structure the existing experience.
-        4. Return ONLY the JSON object.
+        LANGUAGE RULES (Headings, Verbs):
+        {language_template_json}
+        
+        MARKET RULES:
+        {knowledge_base_json}
+        
+        STRUCTURE ORDER:
+        {cv_structure_order}
+        
+        OUTPUT REQUIREMENTS:
+        - Output MUST be a valid JSON object matching the schema below.
+        - Use {country}-specific professional terminology and ATS keywords.
+        - Use {language} section headings (based on LANGUAGE RULES).
+        - Follow {country} tone (formal, no pronouns if applicable).
+        - Place Professional Summary at TOP.
+        - Use action verbs from provided list where applicable.
+        - Include metrics in bullet points.
+        - Do NOT invent data; only refine and re-structure the existing experience.
+        - Return ONLY the JSON object.
         
         SCHEMA: {json.dumps(schema)}
         """
+        
+        logger.info(f"[{request_id}] JOB TITLE EXECUTED: '{job_title}'")
+        logger.info(f"[{request_id}] RAG DATA USED: Language={len(language_template_json)} bytes, KB={len(knowledge_base_json)} bytes")
+        logger.info(f"[{request_id}] FINAL PROMPT LENGTH: {len(prompt)} chars")
         
         api_res = await self.call_model(prompt, temperature=0.4, max_tokens=3000, request_id=request_id)
         

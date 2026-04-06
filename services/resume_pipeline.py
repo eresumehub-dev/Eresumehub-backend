@@ -132,15 +132,16 @@ class ResumePipeline:
     async def _step_generate_content(self, user_data: Dict[str, Any], data: Dict[str, Any], country: str):
         await self._update_status("AI Content Tailoring", 30)
         job_description = data.get("job_description", "")
-        job_title = data.get("job_title") or data.get("user_data", {}).get("job_title", "Untitled Resume")
+        job_title = data.get("job_title") or data.get("user_data", {}).get("job_title")
         
+        if not job_title or job_title.strip() == "" or job_title == "Untitled Resume":
+            raise GenerationError(code="VALIDATION_ERROR", message="Job title is required")
+            
         import asyncio
-        if not job_title or job_title == "Untitled Resume":
-            self.logger.info(f"[{self.request_id}] Title missing, invoking AI titler...")
-            job_title = await asyncio.wait_for(
-                self.ai_service.generate_resume_title(user_data, job_description, request_id=self.request_id),
-                timeout=20.0
-            )
+        from services.rag_service import RAGService
+        
+        # Phase 1: Load RAG BEFORE calling AI
+        rag_data = RAGService.get_complete_rag(country, data.get("language", "English"))
 
         await self._update_status("Generating Smart Sections", 50)
         generation_result = await asyncio.wait_for(
@@ -150,6 +151,7 @@ class ResumePipeline:
                 country=country,
                 language=data.get("language", "English"),
                 job_title=job_title,
+                rag_data=rag_data,
                 request_id=self.request_id
             ),
             timeout=Config.AI_REQUEST_TIMEOUT 
