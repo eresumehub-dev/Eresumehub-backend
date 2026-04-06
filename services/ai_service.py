@@ -608,9 +608,11 @@ class AIService:
     async def generate_tailored_resume(self, user_data: Dict[str, Any], job_description: str, country: str, language: str, job_title: str, rag_data: Dict[str, Any] = None, request_id: str = "internal") -> Dict[str, Any]:
         """Tailor resume content to match a specific job description with schema enforcement."""
         schema = {
-            "professional_summary": "string (optimized for ATS)",
-            "headline": "string (professional headline)",
-            "work_experiences": [{"job_title": "str", "company": "str", "achievements": ["str"]}],
+            "generated_summary": "string (strictly optimize professional summary for this ATS and role)",
+            "headline": "string (professional headline strictly matching requested role)",
+            "experience": [{"job_title": "str", "company": "str", "description": ["str"], "achievements": ["str"]}],
+            "projects": [{"title": "str", "description": ["str"]}],
+            "education": [{"degree": "str", "institution": "str"}],
             "skills": ["string"]
         }
         
@@ -703,14 +705,16 @@ class AIService:
             tailored = json.loads(clean_json)
             
             # Defensive normalization: Ensure Pydantic types (v16.4.14)
-            tailored["work_experiences"] = self._ensure_list(tailored.get("work_experiences"))
+            tailored["experience"] = self._ensure_list(tailored.get("experience"))
+            tailored["projects"] = self._ensure_list(tailored.get("projects"))
+            tailored["education"] = self._ensure_list(tailored.get("education"))
             tailored["skills"] = self._ensure_list(tailored.get("skills"))
             
             # Map back to original structure
             return {
                 "success": True, 
                 "resume_content": {**user_data, **tailored}, 
-                "generated_summary": tailored.get("professional_summary", "")
+                "generated_summary": tailored.get("generated_summary", "")
             }
         except Exception as e:
             logger.error(f"[{request_id}] AI Parse Failure: {e}. Content: {api_res.get('content')[:150]}")

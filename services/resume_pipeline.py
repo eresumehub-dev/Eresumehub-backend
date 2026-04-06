@@ -173,20 +173,24 @@ class ResumePipeline:
 
     async def _step_post_process(self, user_data: Dict[str, Any], generation_result: Dict[str, Any], country: str):
         await self._update_status("Applying Market Rules", 70)
-        resume_content = generation_result["resume_content"]
-        spun_data = generation_result.get("spun_data", {})
+        # ai_service.generate_tailored_resume returns `resume_content` as `{**user_data, **tailored}`
+        generated_data = generation_result.get("resume_content", {})
         
         enriched_data = {
             **user_data,
-            "summary_text": resume_content,
+            **generated_data, # Safely overlay all generated schema elements (experience, skills, projects)
             "professional_summary": generation_result.get("generated_summary", ""),
-            "work_experiences": spun_data.get("work_experiences") or user_data.get("work_experiences", []),
-            "skills": spun_data.get("skills") or user_data.get("skills", []),
-            "educations": spun_data.get("educations") or user_data.get("educations", []),
-            "headline": spun_data.get("headline", ""),
+            "headline": generated_data.get("headline", user_data.get("headline", "")),
             "score": 0 
         }
-        return resume_autocorrect.autocorrect_for_country(enriched_data, country), resume_content
+        
+        # Ensure we have the canonical keys for the templates
+        if not enriched_data.get("experience"):
+             enriched_data["experience"] = enriched_data.get("work_experiences", user_data.get("experience", []))
+        if not enriched_data.get("education"):
+             enriched_data["education"] = enriched_data.get("educations", user_data.get("education", []))
+             
+        return resume_autocorrect.autocorrect_for_country(enriched_data, country), generated_data
 
     async def _step_render_and_analyze(self, resume_content: str, enriched_data: Dict[str, Any], job_title: str, country: str, data: Dict[str, Any]):
         await self._update_status("High-Fidelity PDF & ATS Analysis", 85)
@@ -206,7 +210,7 @@ class ResumePipeline:
         analysis_content = resume_content
         if isinstance(resume_content, dict):
              # Format experience and skills into a readable string for AI context
-             exp_str = "\n".join([f"{e.get('job_title')} at {e.get('company')}: {', '.join(e.get('achievements', []))}" for e in resume_content.get("work_experiences", [])])
+             exp_str = "\n".join([f"{e.get('job_title')} at {e.get('company')}: {', '.join(e.get('achievements', []))}" for e in resume_content.get("experience", resume_content.get("work_experiences", []))])
              skills_str = ", ".join(resume_content.get("skills", []))
              analysis_content = f"SUMMARY: {resume_content.get('professional_summary')}\nEXPERIENCE:\n{exp_str}\nSKILLS: {skills_str}"
 
