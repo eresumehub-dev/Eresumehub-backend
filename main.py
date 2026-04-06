@@ -91,6 +91,12 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# --- CRITICAL: FAST PORT DETECTION (v16.4.18) ---
+@app.get("/")
+async def root():
+    """Essential Health Check for Render Port Binding Detection."""
+    return {"status": "online", "message": "EresumeHub API [Hardened]", "version": "16.4.15"}
+
 # 4. Middleware & Security (CORS MUST BE FIRST)
 # -----------------------------
 # Staff+ Hardening: CORS preflight must be caught before any other middleware
@@ -173,10 +179,6 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 # -----------------------------
 # 6. Global Health & Identity (v16.4.6 Canonical)
 # -----------------------------
-@app.get("/")
-async def root():
-    """Essential Health Check for Render Port Binding Detection."""
-    return {"status": "online", "message": "EresumeHub API [Hardened]", "version": "16.4.15"}
 
 @app.get("/api/health")
 async def health_check():

@@ -154,6 +154,13 @@ class ResumePipeline:
         # Phase 1: Load RAG BEFORE calling AI
         rag_data = RAGService.get_complete_rag(country, data.get("language", "English"))
 
+        # 🧬 Phase 3.1.2: Defensive Guard (v16.4.18 Hardening)
+        # Ensure compliance_gap always exists before being passed to AI service,
+        # preventing AttributeError even if __init__ was bypassed or stale code is loaded.
+        if not hasattr(self, "compliance_gap"):
+            self.logger.warning(f"[{self.request_id}] 🛡️ Defensive Guard: compliance_gap was missing! Initializing now.")
+            self.compliance_gap = []
+
         await self._update_status("Generating Smart Sections", 50)
         generation_result = await asyncio.wait_for(
             self.ai_service.generate_tailored_resume(
