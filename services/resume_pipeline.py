@@ -175,10 +175,13 @@ class ResumePipeline:
     def _audit_compliance(self, resume_content: Dict[str, Any], country: str) -> List[str]:
         """Internal Helper: Programmatic audit of the generated content."""
         violations = []
+        c_lower = country.lower()
         
-        # 1. Metrics Check
-        metric_pattern = re.compile(r'\d+|%|\$')
-        experience = resume_content.get("experience", [])
+        # 1. Metrics Check (Strict Regex with word boundaries)
+        # Allows for: 5%, 50+, $500, 5,000, 5.5, five (numeric or symbol)
+        metric_pattern = re.compile(r'\d+|%|\$|million|billion|thousand', re.IGNORECASE)
+        experience = resume_content.get("experience", resume_content.get("work_experiences", []))
+        
         for exp in experience:
             bullets = exp.get("achievements", [])
             if isinstance(bullets, str): bullets = [bullets]
@@ -186,20 +189,22 @@ class ResumePipeline:
                 if not metric_pattern.search(str(bullet)):
                     violations.append(f"Metric missing in experience: {exp.get('job_title')} - '{bullet[:40]}...'")
         
-        # 2. Weak Verbs Check
-        weak_verbs = ["helped", "contributing", "assisted", "participated"]
+        # 2. Weak Verbs Check (Regex with word boundaries for precision)
+        weak_verbs = ["helped", "contributing", "assisted", "participated", "involved"]
+        verb_pattern = re.compile(r'\b(' + '|'.join(weak_verbs) + r')\b', re.IGNORECASE)
+        
         for exp in experience:
             bullets = exp.get("achievements", [])
             if isinstance(bullets, str): bullets = [bullets]
             for bullet in bullets:
-                content_lower = str(bullet).lower()
-                for verb in weak_verbs:
-                    if content_lower.startswith(verb) or f" {verb} " in content_lower:
-                        violations.append(f"Weak verb '{verb}' found in: '{bullet[:40]}...'")
+                if verb_pattern.search(str(bullet)):
+                    # Extract the matching verb for clarity (v16.4.17)
+                    match = verb_pattern.search(str(bullet))
+                    violations.append(f"Weak verb '{match.group(0)}' found in: '{bullet[:40]}...'")
 
-        # 3. Mandatory Sections (Germany)
-        if country == "Germany":
-            if not resume_content.get("languages"):
+        # 3. Mandatory Sections (Germany) - Normalized casing check
+        if c_lower == "germany":
+            if not resume_content.get("languages") or len(resume_content.get("languages", [])) == 0:
                 violations.append("Mandatory section 'Languages' missing for Germany.")
         
         return violations
@@ -208,6 +213,9 @@ class ResumePipeline:
         """Staff+ Compliance Enforcement: Two-pass Audit & Correction Loop."""
         await self._update_status("Market Compliance Audit", 60)
         
+        # DEBUG: Pipeline Validation Phase Started
+        print(f"[{self.request_id}] 🔍 PIPELINE: Running validation step for {country}")
+        
         current_pass = 1
         max_passes = 2
         
@@ -215,24 +223,31 @@ class ResumePipeline:
             resume_content = gen_res.get("resume_content", {})
             violations = self._audit_compliance(resume_content, country)
             
+            # DEBUG: Log results per pass
+            print(f"[{self.request_id}] 🔍 PASS {current_pass} | Violations found: {len(violations)}")
+            if violations:
+                for v in violations: print(f"   [!] {v}")
+            
             # Education Cleanup (Done every pass to ensure structural integrity)
-            education = resume_content.get("education", [])
+            education = resume_content.get("education", resume_content.get("educations", []))
             original_edu_count = len(education)
             resume_content["education"] = [
                 edu for edu in education 
                 if "pre university" not in str(edu.get("degree", "")).lower() 
                 and "junior college" not in str(edu.get("degree", "")).lower()
+                and "high school" not in str(edu.get("degree", "")).lower()
             ]
             
             if not violations:
-                logger.info(f"[{self.request_id}] Compliance: Pass {current_pass} cleared.")
+                print(f"[{self.request_id}] ✅ Compliance: Pass {current_pass} cleared (0 violations).")
                 break
             
             if current_pass == max_passes:
-                logger.warning(f"[{self.request_id}] Hard Fail-Safe: Compliance failed after {max_passes} passes. Continuing with best-effort.")
+                print(f"[{self.request_id}] ⚠️ Hard Fail-Safe: Compliance failed after {max_passes} passes.")
                 break
                 
-            logger.warning(f"[{self.request_id}] Compliance violations found in Pass {current_pass}: {violations}")
+            # DEBUG: Correction Pass Started
+            print(f"[{self.request_id}] 🛠️ Triggering correction pass for {len(violations)} issues...")
             await self._update_status(f"Failing Pass {current_pass}: Correcting Content", 65)
             
             # Correction Pass: Full JSON Regeneration
@@ -243,13 +258,14 @@ class ResumePipeline:
                 request_id=self.request_id
             )
             
-            # Update gen_res state
+            # Update gen_res state (Strict override)
             gen_res["resume_content"] = corrected_content
             if "generated_summary" in corrected_content:
                 gen_res["generated_summary"] = corrected_content["generated_summary"]
             
             current_pass += 1
             
+        print(f"[{self.request_id}] 🏁 PIPELINE: Validation complete.")
         return gen_res
 
     async def _step_post_process(self, user_data: Dict[str, Any], generation_result: Dict[str, Any], country: str):
