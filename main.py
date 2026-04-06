@@ -55,40 +55,22 @@ async def lifespan(app: FastAPI):
     if hasattr(supabase_service, "initialize"):
         supabase_service.initialize(Config.SUPABASE_URL, Config.SUPABASE_KEY)
             
-    # Initialize Redis & RQ SAFELY (v16.4.5 Hybrid Architecture)
+    # Initialize Redis SAFELY (v16.4.5 Sync Architecture)
     try:
         raw_url = Config.REDIS_URL
         masked_url = re.sub(r':([^@]+)@', ':****@', raw_url) if '@' in raw_url else raw_url
         logger.info(f"System Check: Redis Endpoint Identified -> {masked_url}")
         
-        # 1. Async Handle (For routes, idempotency, debounce)
+        # Async Handle (For routes, idempotency, debounce)
         logger.info("Initializing Async Redis Handle...")
         redis_async = aioredis.from_url(raw_url, decode_responses=False)
-        # We don't await ping here because it's lazy, but we can if we want to be sure
-        
-        # 2. Sync Handle (REQUIRED for RQ library)
-        logger.info("Initializing Sync Redis Handle for RQ...")
-        redis_sync = redis.from_url(raw_url, decode_responses=False)
-        redis_sync.ping() 
         
         app.state.redis = redis_async
-        app.state.redis_sync = redis_sync # For reference if needed
         
-        app.state.high_queue = Queue('high', connection=redis_sync)
-        app.state.default_queue = Queue('default', connection=redis_sync)
-        app.state.low_queue = Queue('low', connection=redis_sync)
-        # Legacy compatibility
-        app.state.rq_queue = app.state.default_queue 
-        
-        logger.info("Distributed Job System: Online (Hybrid Mode)")
+        logger.info("Distributed Job System: Offline (Synchronous Native Mode)")
     except Exception as e:
         logger.critical(f"FATAL: Redis connection failed: {e}")
         app.state.redis = None
-        app.state.redis_sync = None
-        app.state.high_queue = None
-        app.state.default_queue = None
-        app.state.low_queue = None
-        app.state.rq_queue = None
         
         # Staff+ Production Seal: Hard fail if infra is missing in production
         if Config.ENVIRONMENT == "production":
@@ -96,7 +78,7 @@ async def lifespan(app: FastAPI):
 
     yield
     if hasattr(app.state, "redis") and app.state.redis:
-        app.state.redis.close()
+        await app.state.redis.close()
     logger.info("Shutting down EresumeHub API...")
 
 # -----------------------------
