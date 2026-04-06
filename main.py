@@ -171,8 +171,18 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     )
 
 # -----------------------------
-# 6. Router Registration
+# 6. Global Health & Identity (v16.4.6 Canonical)
 # -----------------------------
+@app.get("/")
+async def root():
+    """Essential Health Check for Render Port Binding Detection."""
+    return {"status": "online", "message": "EresumeHub API [Hardened]", "version": "16.4.15"}
+
+@app.get("/api/health")
+async def health_check():
+    """Detailed System Health Check."""
+    return {"status": "online", "version": "16.4.15"}
+
 from routes.auth import router as auth_router
 from routes.resume_routes import router as resume_router
 from routes.job_routes import router as job_router
@@ -224,10 +234,6 @@ app.include_router(user_router)
 # -----------------------------
 # 7. Optimized Performance Endpoints
 # -----------------------------
-@app.get("/api/health")
-async def health_check():
-    return {"status": "online", "version": "16.4.15"}
-
 @app.get("/api/v1/resume/{resume_id}/pdf", tags=["Resumes"])
 async def download_resume_pdf_proxied(
     request: Request,
