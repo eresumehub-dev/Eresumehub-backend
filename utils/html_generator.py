@@ -68,7 +68,9 @@ class HTMLGenerator:
                 # When frontend sends a continuous string block, it often lacks spaces before capital letters.
                 # "applicationsBuilt" -> "applications\nBuilt"
                 items = re.sub(r'([a-z])([A-Z])', r'\1\n\2', items)
-                return [clean_field(b) for b in items.split("\n") if b.strip()]
+                # Split by newline or period (if it's a paragraph instead of bullet points)
+                parts = re.split(r'\n|(?<=[a-z])\.\s+', items)
+                return [clean_field(b) for b in parts if b and b.strip()]
             if isinstance(items, list):
                 return [clean_field(str(b)) for b in items if b and str(b).strip()]
             return [clean_field(str(items))]
@@ -78,20 +80,31 @@ class HTMLGenerator:
         safe_user_data["full_name"] = clean_field(safe_user_data.get("full_name", full_name))
         
         # Consistent Capitalization for Role & Title
+        import re
+        def normalize_title(text):
+            if not text: return text
+            # Normalize casing for technical terms (e.g. Ai -> AI, Api -> API)
+            text = str(text).title()
+            text = re.sub(r'\bAi\b', 'AI', text)
+            text = re.sub(r'\bApi\b', 'API', text)
+            return text
+
         if safe_user_data.get("headline"):
-            safe_user_data["headline"] = clean_field(safe_user_data["headline"]).title()
+            safe_user_data["headline"] = normalize_title(clean_field(safe_user_data["headline"]))
         if safe_user_data.get("title"):
-            safe_user_data["title"] = str(safe_user_data.get("title")).title()
+            safe_user_data["title"] = normalize_title(safe_user_data.get("title"))
 
         # Fix Empty Bullets Bug: Enforce lists for achievements/description
-        if safe_user_data.get("work_experiences"):
-            for exp in safe_user_data["work_experiences"]:
+        if safe_user_data.get("experience"):
+            for exp in safe_user_data["experience"]:
                 if exp.get("achievements"):
                     exp["achievements"] = normalize_bullets(exp["achievements"])
                 if exp.get("description"):
                     exp["description"] = normalize_bullets(exp["description"])
                 if exp.get("job_title"):
-                    exp["job_title"] = str(exp["job_title"]).title()
+                    exp["job_title"] = normalize_title(exp["job_title"])
+                if exp.get("title"):
+                    exp["title"] = normalize_title(exp["title"])
                     
         if safe_user_data.get("projects"):
             for proj in safe_user_data["projects"]:

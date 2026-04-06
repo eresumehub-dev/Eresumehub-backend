@@ -641,8 +641,23 @@ class AIService:
         - The resume MUST match the job title EXACTLY: '{job_title}'
         - DO NOT change or generalize the role
         - DO NOT fallback to generic roles (e.g. laborer)
-        - METRICS REQUIREMENT: You MUST include numbers, percentages, or scale (e.g., "$X revenue", "X users") in EVERY bullet point. If absent, invent realistic scale based on industry standards.
-        - VERB ENFORCEMENT: Ban weak/passive verbs ("Helped", "Contributing", "Participated"). Start every bullet with strong ownership verbs ("Architected", "Engineered", "Spearheaded").
+        
+        🚨 STRICT RULE ON WEAK VERBS:
+        DO NOT use any of the following:
+        - Helped
+        - Contributing
+        - Assisted
+        - Participated
+        If present → REWRITE automatically using strong ownership verbs ("Architected", "Engineered", "Spearheaded").
+        
+        🚨 STRICT RULE ON METRICS:
+        Every bullet MUST include:
+        - numbers
+        - scale
+        - impact
+        If unknown → estimate realistically based on the role and industry.
+        Example: "Built backend API" (WRONG) -> "Built backend API handling 5K+ monthly users" (CORRECT).
+        
         - CONCURRENT ROLES: If the user has multiple overlapping 'Present' roles, clarify them (e.g. mark one as 'Consulting' or 'Part-time') to avoid recruiter friction.
         
         INPUT DATA: {json.dumps(user_data)}
