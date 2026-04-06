@@ -106,150 +106,163 @@
         {% endif %}
     </div>
 
-    <!-- Summary Section -->
-    {% if user_data.professional_summary or user_data.summary_text or user_data.summary %}
-    <div class="section" style="margin-bottom: 15px;">
-        <div class="section-title">{{ rag_data.get('language_template', {}).get('section_headings', {}).get('summary', rag_data.get('language_template', {}).get('section_headings', {}).get('self_pr', 'Professional Summary')) }}</div>
-        <p style="margin-top: 5px;">{{ user_data.professional_summary or user_data.summary_text or user_data.summary }}</p>
-    </div>
-    {% endif %}
+    {% for section in section_order %}
+    
+    {% if section == 'summary' %}
+        <!-- Summary Section -->
+        {% if user_data.professional_summary or user_data.summary_text or user_data.summary %}
+        <div class="section" style="margin-bottom: 15px;">
+            <div class="section-title">{{ rag_data.get('language_template', {}).get('section_headings', {}).get('summary', rag_data.get('language_template', {}).get('section_headings', {}).get('self_pr', 'Professional Summary')) }}</div>
+            <p style="margin-top: 5px;">{{ user_data.professional_summary or user_data.summary_text or user_data.summary }}</p>
+        </div>
+        {% endif %}
+    
+    {% elif section == 'experience' %}
+        <!-- Experience Section -->
+        {% if user_data.work_experiences %}
+        <div class="section">
+            <div class="section-title">{{ rag_data.get('language_template', {}).get('section_headings', {}).get('experience', 'Work Experience') }}</div>
+            {% for job in user_data.work_experiences %}
+            <div class="job-entry" style="margin-bottom: 15px;">
+                <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                        <td width="70%" align="left" style="vertical-align: top;">
+                            <span class="job-title">{{ job.job_title }}</span>
+                            {% if job.company %} - <span class="job-company">{{ job.company }}</span>{% endif %}
+                        </td>
+                        <td width="30%" align="right" style="vertical-align: top;">
+                            <span class="job-date">{{ format_date(job.start_date) }} - {{ format_date(job.end_date) if job.end_date else 'Present' }}</span>
+                        </td>
+                    </tr>
+                </table>
+                {% if job.description or job.achievements %}
+                <ul style="margin-top: 3px; margin-bottom: 0;">
+                    {% for bullet in (job.description or job.achievements) %}
+                    <li>{{ bullet }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
 
-    <!-- Experience Section -->
-    {% if user_data.work_experiences %}
-    <div class="section">
-        <div class="section-title">{{ rag_data.get('language_template', {}).get('section_headings', {}).get('experience', 'Work Experience') }}</div>
-        {% for job in user_data.work_experiences %}
-        <div class="job-entry" style="margin-bottom: 15px;">
-            <table width="100%" cellpadding="0" cellspacing="0" border="0">
-                <tr>
-                    <td width="70%" align="left" style="vertical-align: top;">
-                        <span class="job-title">{{ job.job_title }}</span>
-                        {% if job.company %} - <span class="job-company">{{ job.company }}</span>{% endif %}
-                    </td>
-                    <td width="30%" align="right" style="vertical-align: top;">
-                        <span class="job-date">{{ job.start_date }} - {{ job.end_date if job.end_date else 'Present' }}</span>
-                    </td>
-                </tr>
-            </table>
-            {% if job.description or job.achievements %}
-            <ul style="margin-top: 3px; margin-bottom: 0;">
-                {% for bullet in (job.description or job.achievements) %}
-                <li>{{ bullet }}</li>
+    {% elif section == 'projects' %}
+        <!-- Projects Section -->
+        {% if user_data.projects %}
+        <div class="section">
+            <div class="section-title">{{ rag_data.get('language_template', {}).get('section_headings', {}).get('projects', 'Projects') }}</div>
+            {% for proj in user_data.projects %}
+            <div class="job-entry">
+                <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                        <td width="70%" align="left" style="vertical-align: top;">
+                            <span class="job-title">{{ proj.title }}</span>
+                            {% if proj.role %} - <span class="job-company">{{ proj.role }}</span>{% endif %}
+                        </td>
+                        <td width="30%" align="right" style="vertical-align: top;">
+                            <span class="job-date">{{ format_date(proj.start_date) }} - {{ format_date(proj.end_date) if proj.end_date else 'Present' }}</span>
+                        </td>
+                    </tr>
+                </table>
+                {% if proj.link %}<div><span style="color:#000;">{{ proj.link }}</span></div>{% endif %}
+                
+                <p style="margin-top: 5px;">{{ proj.description }}</p>
+                {% if proj.technologies %}
+                <p style="font-size: 9pt; color: #666;"><strong>Stack:</strong> {{ proj.technologies|join(', ') }}</p>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+    {% elif section == 'education' %}
+        <!-- Education Section -->
+        {% if user_data.educations %}
+        <div class="section">
+            <div class="section-title">{{ rag_data.get('language_template', {}).get('section_headings', {}).get('education', 'Education') }}</div>
+            {% for edu in user_data.educations %}
+            <div class="job-entry" style="margin-bottom: 10px;">
+                <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                        <td width="70%" align="left" style="vertical-align: top;">
+                            <span class="job-title">{{ edu.degree }}</span>
+                            {% if edu.institution %} - <span class="job-company">{{ edu.institution }}</span>{% endif %}
+                        </td>
+                        <td width="30%" align="right" style="vertical-align: top;">
+                            {% if edu.graduation_date %}<span class="job-date">{{ format_date(edu.graduation_date) }}</span>{% endif %}
+                        </td>
+                    </tr>
+                </table>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+    {% elif section == 'certifications' %}
+        <!-- Certifications Section -->
+        {% if user_data.certifications %}
+        <div class="section">
+            <div class="section-title">{{ rag_data.get('language_template', {}).get('section_headings', {}).get('certifications', 'Certifications & Licenses') }}</div>
+            <ul>
+                {% for cert in user_data.certifications %}
+                <li>
+                    {% if cert is mapping %}
+                        <strong>{{ cert.name }}</strong>
+                        {% if cert.issuing_organization %} - {{ cert.issuing_organization }}{% endif %}
+                        {% if cert.issue_date %} ({{ format_date(cert.issue_date) }}){% endif %}
+                    {% else %}
+                        <strong>{{ cert }}</strong>
+                    {% endif %}
+                </li>
                 {% endfor %}
             </ul>
-            {% endif %}
         </div>
-        {% endfor %}
-    </div>
-    {% endif %}
+        {% endif %}
 
-    <!-- Projects Section -->
-    {% if user_data.projects %}
-    <div class="section">
-        <div class="section-title">Projects</div>
-        {% for proj in user_data.projects %}
-        <div class="job-entry">
-            <table width="100%" cellpadding="0" cellspacing="0" border="0">
-                <tr>
-                    <td width="70%" align="left" style="vertical-align: top;">
-                        <span class="job-title">{{ proj.title }}</span>
-                        {% if proj.role %} - <span class="job-company">{{ proj.role }}</span>{% endif %}
-                    </td>
-                    <td width="30%" align="right" style="vertical-align: top;">
-                        <span class="job-date">{{ proj.start_date }} - {{ proj.end_date if proj.end_date else 'Present' }}</span>
-                    </td>
-                </tr>
-            </table>
-            {% if proj.link %}<div><span style="color:#000;">{{ proj.link }}</span></div>{% endif %}
-            
-            <p style="margin-top: 5px;">{{ proj.description }}</p>
-            {% if proj.technologies %}
-            <p style="font-size: 9pt; color: #666;"><strong>Stack:</strong> {{ proj.technologies|join(', ') }}</p>
-            {% endif %}
+    {% elif section == 'skills' %}
+        <!-- Skills Section -->
+        {% if user_data.skills %}
+        <div class="section">
+            <div class="section-title">{{ rag_data.get('language_template', {}).get('section_headings', {}).get('skills', 'Skills') }}</div>
+            <div class="skills-list">
+                {% for skill in user_data.skills %}
+                <span class="skill-tag">{{ skill }}</span>
+                {% endfor %}
+            </div>
         </div>
-        {% endfor %}
-    </div>
-    {% endif %}
+        {% endif %}
 
-    <!-- Education Section -->
-    {% if user_data.educations %}
-    <div class="section">
-        <div class="section-title">{{ rag_data.get('language_template', {}).get('section_headings', {}).get('education', 'Education') }}</div>
-        {% for edu in user_data.educations %}
-        <div class="job-entry" style="margin-bottom: 10px;">
-            <table width="100%" cellpadding="0" cellspacing="0" border="0">
-                <tr>
-                    <td width="70%" align="left" style="vertical-align: top;">
-                        <span class="job-title">{{ edu.degree }}</span>
-                        {% if edu.institution %} - <span class="job-company">{{ edu.institution }}</span>{% endif %}
-                    </td>
-                    <td width="30%" align="right" style="vertical-align: top;">
-                        {% if edu.graduation_date %}<span class="job-date">{{ edu.graduation_date }}</span>{% endif %}
-                    </td>
-                </tr>
-            </table>
+    {% elif section == 'languages' %}
+        <!-- Languages Section -->
+        {% if user_data.languages %}
+        <div class="section">
+            <div class="section-title">{{ rag_data.get('language_template', {}).get('section_headings', {}).get('languages', 'Languages') }}</div>
+            <ul>
+                {% for lang in user_data.languages %}
+                <li>
+                    {% if lang is mapping %}
+                        <strong>{{ lang.name }}</strong>
+                        {% if lang.level %} - {{ lang.level }}{% endif %}
+                    {% else %}
+                        <strong>{{ lang }}</strong>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
         </div>
-        {% endfor %}
-    </div>
-    {% endif %}
+        {% endif %}
 
-    <!-- Certifications Section -->
-    {% if user_data.certifications %}
-    <div class="section">
-        <div class="section-title">{{ rag_data.get('language_template', {}).get('section_headings', {}).get('certifications', 'Certifications & Licenses') }}</div>
-        <ul>
-            {% for cert in user_data.certifications %}
-            <li>
-                {% if cert is mapping %}
-                    <strong>{{ cert.name }}</strong>
-                    {% if cert.issuing_organization %} - {{ cert.issuing_organization }}{% endif %}
-                    {% if cert.issue_date %} ({{ cert.issue_date }}){% endif %}
-                {% else %}
-                    <strong>{{ cert }}</strong>
-                {% endif %}
-            </li>
-            {% endfor %}
-        </ul>
-    </div>
-    {% endif %}
-
-    <!-- Skills Section -->
-    {% if user_data.skills %}
-    <div class="section">
-        <div class="section-title">{{ rag_data.get('language_template', {}).get('section_headings', {}).get('skills', 'Skills') }}</div>
-        <div class="skills-list">
-            {% for skill in user_data.skills %}
-            <span class="skill-tag">{{ skill }}</span>
-            {% endfor %}
+    {% elif section == 'motivation' %}
+        <!-- Motivation Section -->
+        {% if user_data.motivation %}
+        <div class="section" style="margin-top: 15px;">
+            <div class="section-title">{{ rag_data.get('language_template', {}).get('section_headings', {}).get('motivation', 'Motivation') }}</div>
+            <p style="margin-top: 5px;">{{ user_data.motivation }}</p>
         </div>
-    </div>
+        {% endif %}
+        
     {% endif %}
-
-    <!-- Languages Section -->
-    {% if user_data.languages %}
-    <div class="section">
-        <div class="section-title">{{ rag_data.get('language_template', {}).get('section_headings', {}).get('languages', 'Languages') }}</div>
-        <ul>
-            {% for lang in user_data.languages %}
-            <li>
-                {% if lang is mapping %}
-                    <strong>{{ lang.name }}</strong>
-                    {% if lang.level %} - {{ lang.level }}{% endif %}
-                {% else %}
-                    <strong>{{ lang }}</strong>
-                {% endif %}
-            </li>
-            {% endfor %}
-        </ul>
-    </div>
-    {% endif %}
-
-    <!-- Motivation Section -->
-    {% if user_data.motivation %}
-    <div class="section" style="margin-top: 15px;">
-        <div class="section-title">{{ rag_data.get('language_template', {}).get('section_headings', {}).get('motivation', 'Motivation') }}</div>
-        <p style="margin-top: 5px;">{{ user_data.motivation }}</p>
-    </div>
-    {% endif %}
+    {% endfor %}
 </body>
 </html>
