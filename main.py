@@ -19,12 +19,12 @@ from typing import Dict, Any, List, Optional
 from contextlib import asynccontextmanager
 import redis
 import redis.asyncio as aioredis
-from rq import Queue
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from middleware.request_id_middleware import RequestIDMiddleware
 from middleware.latency_middleware import LatencyMiddleware
+from services.resume_pipeline import PipelineError
 
 # -----------------------------
 # 1. Critical Boot Sequence
