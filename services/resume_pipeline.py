@@ -24,7 +24,12 @@ class PipelineError(Exception):
         self.status_hint = status_hint
         super().__init__(message)
 
-class ComplianceError(PipelineError): pass
+class ComplianceError(PipelineError):
+    """Raised when market-specific mandates are missing."""
+    def __init__(self, code: str, message: str, fields: List[str] = None, status_hint: int = 422):
+        self.fields = fields or []
+        super().__init__(code, message, status_hint)
+
 class GenerationError(PipelineError): pass
 class StorageError(PipelineError): pass
 class AuthorizationError(PipelineError): pass
@@ -123,17 +128,25 @@ class ResumePipeline:
     async def _step_validate(self, user_data: Dict[str, Any], data: Dict[str, Any]):
         await self._update_status("Market Compliance Check", 20)
         country = data.get("country", user_data.get("country", "Germany"))
+        ignore_compliance = data.get("ignoreCompliance", False)
         
         # Hybrid Compliance UX (v16.4.18 Hardening)
-        # We no longer hard-block on compliance fields (DOB, Nationality, etc.)
-        # Instead, we identify gaps and inject them as warnings for the AI to adapt.
         from utils.resume_validator import ResumeComplianceValidator
         validation = ResumeComplianceValidator.validate(user_data, country)
         
         if not validation["valid"]:
-            # Capture strictly the MISSING metadata fields
             missing_fields = [err.get("field", "unknown") for err in validation.get("errors", [])]
             self.compliance_gap = missing_fields
+            
+            # HARD ENFORCEMENT (Phase 4): Block if not explicitly ignored
+            if not ignore_compliance:
+                self.logger.error(f"[{self.request_id}] 🛑 Compliance Block: {country} requires {missing_fields}. 'ignoreCompliance' not set.")
+                raise ComplianceError(
+                    code="COMPLIANCE_REQUIRED",
+                    message=f"Mandatory fields missing for {country}",
+                    fields=missing_fields
+                )
+            
             self.logger.warning(f"[{self.request_id}] ⚠️ Compliance gap detected for {country}: {missing_fields}. Continuing with AI adaptation.")
             
         return country

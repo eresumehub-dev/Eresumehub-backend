@@ -279,6 +279,31 @@ class ResumeService:
             logger.error(f"Failed to archive resume: {str(e)}")
             return False
     
+    async def delete_resume(self, resume_id: str) -> bool:
+        """
+        Soft delete a resume via Supabase service
+        """
+        try:
+            # 1. Fetch user_id for cache busting (v10.0.0)
+            resume = await supabase_service.get_resume(resume_id)
+            user_id = resume.get("user_id") if resume else None
+
+            # 2. Perform soft delete
+            success = await supabase_service.delete_resume(resume_id)
+
+            # 3. Cache Invalidation Burst (v10.0.0)
+            if success and user_id:
+                from services.profile_service import ProfileService
+                from services.analytics_service import AnalyticsService
+                ProfileService.invalidate_cache(user_id)
+                AnalyticsService.invalidate_user_cache(user_id)
+
+            logger.info(f"Resume {resume_id} deleted successfully")
+            return success
+        except Exception as e:
+            logger.error(f"Failed to delete resume: {str(e)}")
+            return False
+    
     async def restore_resume(self, resume_id: str) -> bool:
         """
         Restore an archived resume

@@ -89,6 +89,19 @@ async def create_new_resume(
             "data": result["data"],
             "id": result["resume_id"]
         }
+    except ComplianceError as ce:
+        logger.warning(f"[{request_id}] 🛑 Compliance Blocked: {ce.fields}")
+        await request.app.state.redis.delete(debounce_key)
+        return JSONResponse(
+            status_code=422,
+            content={
+                "success": False,
+                "status": "requires_user_action",
+                "message": ce.message,
+                "compliance_gaps": ce.fields,
+                "request_id": request_id
+            }
+        )
     except Exception as e:
         logger.exception(f"[{request_id}] Synchronous resume creation failed: {e}")
         await request.app.state.redis.delete(debounce_key)
