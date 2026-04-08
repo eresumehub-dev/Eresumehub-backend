@@ -14,8 +14,12 @@ logger = logging.getLogger(__name__)
 class ResumeService:
     """Service for managing resume operations"""
     
-    def __init__(self):
-        self.client = supabase_service.client
+    def __init__(self, supabase_service=None):
+        if supabase_service:
+            self.client = supabase_service.client
+        else:
+            from services.supabase_service import supabase_service as shared_supabase
+            self.client = shared_supabase.client
     
     async def update_resume_content(
         self, 

@@ -55,8 +55,9 @@ class LatencyMiddleware(BaseHTTPMiddleware):
                 "user_id": user_id
             }
             
-            # 1. Persist to Observability Table
-            await supabase_service.client.table("endpoint_latency_logs").insert(log_data).execute()
+            # 1. Persist to Observability Table (TEMPORARILY DISABLED: RLS Violation Noise)
+            # await supabase_service.client.table("endpoint_latency_logs").insert(log_data).execute()
+            logger.debug(f"Telemetry Log: {log_data['path']} - {log_data['duration_ms']}ms")
             
             # 2. Production SLA Auditing (v15.2.0 Enforcement)
             is_slow = duration_ms > 300
