@@ -67,6 +67,10 @@ async def create_new_resume(
         job_data = data.model_dump()
         job_data["action"] = "create"
         
+        # 1. Pipeline Identity Context (v16.4.0 Clean Identity)
+        # We pass the canonical Auth UUID exclusively to prevent FK mismatches.
+        user_ctx = {"auth_user_id": user_id}
+
         # 🔑 Direct Pipeline Call (No Worker Tier)
         result = await ResumePipeline.run_for_user(
             request_id=request_id,
@@ -77,31 +81,19 @@ async def create_new_resume(
             user=user_ctx,
             data=job_data
         )
-        
+
         elapsed = (time.time() - start_time) * 1000
         logger.info(f"[{request_id}] Resume created SYNCHRONOUSLY in {elapsed:.2f}ms")
-        
+
         # Clean up debounce lock immediately on success
         await request.app.state.redis.delete(debounce_key)
-        
+
         return {
             "success": True, 
             "data": result["data"],
-            "id": result["resume_id"]
+            "id": result["resume_id"],
+            "compliance_gap": result.get("compliance_gap", [])
         }
-    except ComplianceError as ce:
-        logger.warning(f"[{request_id}] 🛑 Compliance Blocked: {ce.fields}")
-        await request.app.state.redis.delete(debounce_key)
-        return JSONResponse(
-            status_code=422,
-            content={
-                "success": False,
-                "status": "requires_user_action",
-                "message": ce.message,
-                "compliance_gaps": ce.fields,
-                "request_id": request_id
-            }
-        )
     except Exception as e:
         logger.exception(f"[{request_id}] Synchronous resume creation failed: {e}")
         await request.app.state.redis.delete(debounce_key)

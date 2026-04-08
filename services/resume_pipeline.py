@@ -24,11 +24,6 @@ class PipelineError(Exception):
         self.status_hint = status_hint
         super().__init__(message)
 
-class ComplianceError(PipelineError):
-    """Raised when market-specific mandates are missing."""
-    def __init__(self, code: str, message: str, fields: List[str] = None, status_hint: int = 422):
-        self.fields = fields or []
-        super().__init__(code, message, status_hint)
 
 class GenerationError(PipelineError): pass
 class StorageError(PipelineError): pass
@@ -138,16 +133,9 @@ class ResumePipeline:
             missing_fields = [err.get("field", "unknown") for err in validation.get("errors", [])]
             self.compliance_gap = missing_fields
             
-            # HARD ENFORCEMENT (Phase 4): Block if not explicitly ignored
-            if not ignore_compliance:
-                self.logger.error(f"[{self.request_id}] 🛑 Compliance Block: {country} requires {missing_fields}. 'ignoreCompliance' not set.")
-                raise ComplianceError(
-                    code="COMPLIANCE_REQUIRED",
-                    message=f"Mandatory fields missing for {country}",
-                    fields=missing_fields
-                )
-            
+            # HYBRID MODE: Log gap and continue (v16.4.18)
             self.logger.warning(f"[{self.request_id}] ⚠️ Compliance gap detected for {country}: {missing_fields}. Continuing with AI adaptation.")
+            print(f"[{self.request_id}] [Pipeline] Compliance gap detected: {missing_fields}")
             
         return country
 
@@ -448,7 +436,12 @@ class ResumePipeline:
                                                         entity_type="resume", entity_id=resume_id, 
                                                         new_data={"request_id": self.request_id, "score": enriched_data["score"]})
             
-            return {"success": True, "resume_id": resume_id, "data": final_resume}
+            return {
+                "success": True, 
+                "resume_id": resume_id, 
+                "data": final_resume,
+                "compliance_gap": getattr(self, "compliance_gap", [])
+            }
             
         except Exception as e:
             await self._record_metrics("failed")
