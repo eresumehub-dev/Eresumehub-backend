@@ -85,8 +85,9 @@ class ProfileService:
         """
         try:
             # [STRICT V16.0.0] Canonical fetch only
+            # [STRICT V16.0.0] Selecting only existing columns
             response = await self.supabase.client.table('user_profiles')\
-                .select("id, user_id, full_name, headline, bio, photo_url, location")\
+                .select("id, user_id, full_name, professional_summary, photo_url, city, country")\
                 .eq('user_id', user_id)\
                 .execute()
             
