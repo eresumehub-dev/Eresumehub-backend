@@ -276,7 +276,7 @@ class ProfileService:
                 await self._update_profile_extras(profile_id, profile_data['extras'])
             
             # Cache Invalidation (v10.0.0)
-            self.invalidate_cache(user_id)
+            await self.invalidate_cache(user_id)
             from services.analytics_service import AnalyticsService
             AnalyticsService.invalidate_user_cache(user_id)
 
