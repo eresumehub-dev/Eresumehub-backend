@@ -29,15 +29,23 @@ class ResumeComplianceValidator:
         Load knowledge base for the specified country.
         Now supports standard mapping and graceful fallback.
         """
-        # Normalize country name (e.g. "United States" -> "USA" if needed, but for now simple mapping)
-        # We try to find a subdirectory in rag_schemas that matches the country
-        base_dir = os.path.join(os.path.dirname(__file__), "..", "rag_schemas")
+        # 1. Normalize and Map Country (v16.4.19)
+        c_norm = country.strip().lower()
+        if c_norm == 'dach':
+            c_norm = 'germany'
         
-        # 1. Direct Directory Match
-        country_dir = os.path.join(base_dir, country)
-        ResumeComplianceValidator._log_debug(f"[Validator] Loading rules for country: {country} from {country_dir}")
-        
-        if os.path.isdir(country_dir):
+        # 2. Case-Insensitive Directory Match (Essential for Render/Linux)
+        # We look for a directory that matches the normalized name
+        actual_dir = None
+        if os.path.exists(base_dir):
+            for d in os.listdir(base_dir):
+                if d.lower() == c_norm and os.path.isdir(os.path.join(base_dir, d)):
+                    actual_dir = d
+                    break
+
+        if actual_dir:
+            country_dir = os.path.join(base_dir, actual_dir)
+            ResumeComplianceValidator._log_debug(f"[Validator] Loading rules for country: {country} (Mapped: {actual_dir}) from {country_dir}")
             kb_path = os.path.join(country_dir, "knowledge_base.json")
             if os.path.exists(kb_path):
                 try:

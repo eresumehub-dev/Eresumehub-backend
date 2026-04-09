@@ -58,6 +58,27 @@ async def create_new_resume(
     debounce_key = f"debounce:create:{user_id}"
     if await request.app.state.redis.get(debounce_key):
         raise HTTPException(status_code=429, detail="Request already in progress.")
+        
+    # --- PROACTIVE COMPLIANCE GATE (Backend Failsafe) ---
+    c_lower = data.country.lower()
+    if c_lower in ['germany', 'austria', 'switzerland', 'dach']:
+        if not data.user_data.date_of_birth or not data.user_data.date_of_birth.strip():
+            raise HTTPException(
+                status_code=422,
+                detail={"status": "requires_user_action", "message": f"{data.country} standard CVs strictly require a Date of Birth."}
+            )
+        if not data.user_data.nationality or not data.user_data.nationality.strip():
+            raise HTTPException(
+                status_code=422,
+                detail={"status": "requires_user_action", "message": f"Nationality is mandatory in {data.country}."}
+            )
+    elif c_lower == 'japan':
+        if not data.user_data.summary or not data.user_data.summary.strip():
+            raise HTTPException(
+                status_code=422,
+                detail={"status": "requires_user_action", "message": "A Self-PR (Summary) section is mandatory for Japan."}
+            )
+    # --------------------------------------------------
     
     # 4. Synchronous Execution (v16.4.9 Pivot)
     start_time = time.time()

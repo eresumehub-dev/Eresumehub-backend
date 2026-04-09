@@ -128,14 +128,23 @@ class ResumePipeline:
         # Hybrid Compliance UX (v16.4.18 Hardening)
         from utils.resume_validator import ResumeComplianceValidator
         validation = ResumeComplianceValidator.validate(user_data, country)
-        
         if not validation["valid"]:
             missing_fields = [err.get("field", "unknown") for err in validation.get("errors", [])]
             self.compliance_gap = missing_fields
             
-            # HYBRID MODE: Log gap and continue (v16.4.18)
-            self.logger.warning(f"[{self.request_id}] ⚠️ Compliance gap detected for {country}: {missing_fields}. Continuing with AI adaptation.")
-            print(f"[{self.request_id}] [Pipeline] Compliance gap detected: {missing_fields}")
+            # 🧬 v16.4.19 - Restoring Server-Side Gating
+            if not ignore_compliance:
+                self.logger.warning(f"[{self.request_id}] 🛑 Compliance Block: {country} requires {missing_fields}")
+                # 422: Unprocessable Entity (Standard for compliance gating)
+                raise PipelineError(
+                    code="COMPLIANCE_REQUIRED", 
+                    message=f"Mandatory fields missing for {country}: {', '.join(missing_fields)}",
+                    status_hint=422
+                )
+            
+            # HYBRID MODE: Log gap and continue if bypass requested
+            self.logger.info(f"[{self.request_id}] ⚠️ Compliance gap ignored via bypass for {country}: {missing_fields}.")
+            print(f"[{self.request_id}] [Pipeline] Compliance gap detected (BYPASSED): {missing_fields}")
             
         return country
 
