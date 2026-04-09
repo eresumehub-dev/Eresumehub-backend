@@ -1,7 +1,8 @@
 import os
 import uuid
+import asyncio
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from fastapi import Header, Query, HTTPException, Request
 from datetime import datetime
 from services.supabase_service import supabase_service
@@ -62,9 +63,30 @@ async def get_current_user_from_token(
                 email_resp = await client.table("users").select("*").eq("email", user_email).limit(1).execute()
                 if email_resp.data:
                     existing_user = email_resp.data[0]
-                    logger.info(f"Found existing user record for email: {user_email}. Linking auth_user_id: {auth_user_id}")
-                    # Update existing record with the new auth_user_id
+                    old_auth_id = existing_user.get("auth_user_id")
+                    
+                    logger.info(f"Linking email {user_email}: {old_auth_id} -> {auth_user_id}")
+                    
+                    # 1. Update primary user record
                     update_resp = await client.table("users").update({"auth_user_id": auth_user_id}).eq("id", existing_user["id"]).execute()
+                    
+                    # 2. CASCADE: Migrate all dependent data if the ID actually changed
+                    if old_auth_id and old_auth_id != auth_user_id:
+                        logger.info(f"CASCADING IDENTITY MIGRATION: {old_auth_id} -> {auth_user_id}")
+                        try:
+                            # Use asyncio.gather for parallel database updates
+                            migration_tasks = [
+                                client.table("user_profiles").update({"user_id": auth_user_id}).eq("user_id", old_auth_id).execute(),
+                                client.table("resumes").update({"user_id": auth_user_id}).eq("user_id", old_auth_id).execute(),
+                                client.table("user_analytics_cache").update({"user_id": auth_user_id}).eq("user_id", old_auth_id).execute(),
+                                client.table("resume_views").update({"viewer_user_id": auth_user_id}).eq("viewer_user_id", old_auth_id).execute(),
+                                client.table("resume_likes").update({"user_id": auth_user_id}).eq("user_id", old_auth_id).execute()
+                            ]
+                            await asyncio.gather(*migration_tasks, return_exceptions=True)
+                            logger.info(f"Identity migration complete for {user_email}")
+                        except Exception as migration_error:
+                            logger.error(f"CASCADE FAIL: One or more tables failed to migrate for {user_email}: {migration_error}")
+                    
                     if update_resp.data:
                         user_row = update_resp.data[0]
             

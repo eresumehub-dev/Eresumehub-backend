@@ -101,7 +101,8 @@ class ProfileService:
             })
             return profile
         except Exception as e:
-            logger.error(f"Error fetching profile header for user {user_id}: {str(e)}")
+            import traceback
+            logger.error(f"Error fetching profile header for user {user_id}: {repr(e)}\n{traceback.format_exc()}")
             return None
 
     async def get_dashboard_bootstrap(self, user_id: str) -> Dict[str, Any]:
