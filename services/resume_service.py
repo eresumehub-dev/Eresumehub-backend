@@ -299,7 +299,7 @@ class ResumeService:
             if success and user_id:
                 from services.profile_service import ProfileService
                 from services.analytics_service import AnalyticsService
-                ProfileService.invalidate_cache(user_id)
+                await ProfileService.invalidate_cache(user_id)
                 AnalyticsService.invalidate_user_cache(user_id)
 
             logger.info(f"Resume {resume_id} deleted successfully")

@@ -537,7 +537,7 @@ class AnalyticsService:
                     "id": r['id'], "title": r['title'], "views": len(rv),
                     "engagement_score": round(rv['engagement_score'].mean(), 2) if not rv.empty else 0,
                     "success_probability": success_predictions.get(r['id'], 0.1),
-                    "downloads": len(rv[rv['source'] == 'legacy']),
+                    "downloads": len(rv[rv['source'] == 'legacy']) if not rv.empty and 'source' in rv.columns else 0,
                     "insight_tag": "Trending" if len(rv) > 10 and rv['engagement_score'].mean() > 0.6 else "Stable"
                 })
 
@@ -632,6 +632,29 @@ class AnalyticsService:
         elif pd.isna(obj):  # Handle NaN/None
             return None
         return obj
+
+    async def _save_to_cache(self, user_id: str, analytics: Dict[str, Any]):
+        """Persist computed analytics to the database cache table (v15.0.0)"""
+        try:
+            # We use upsert on user_id to keep a single canonical cache record
+            await self.supabase.client.table("user_analytics_cache").upsert({
+                "user_id": user_id,
+                "dashboard_json": analytics,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }).execute()
+            logger.info(f"Analytics cache saved for user {user_id}")
+        except Exception as e:
+            logger.error(f"Failed to save analytics cache: {e}")
+
+    async def _calculate_global_benchmarks(self) -> Dict[str, float]:
+        """Fetch or calculate global engagement benchmarks for nudges (v15.1.0)"""
+        # FUTURE: This should query an aggregation view across all users.
+        # For now, we return high-end industry standards for "professional" feedback.
+        return {
+            "ttv_median": 2.5,        # 2.5s to first scroll is standard
+            "engagement_median": 0.35, # 35% engagement is healthy
+            "conversion_median": 8.0   # 8% conversion to download
+        }
 
 # Global Singleton Export (v16.4.12 Hotfix)
 from services.supabase_service import supabase_service
