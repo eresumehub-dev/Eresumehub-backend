@@ -5,6 +5,7 @@ import time
 import logging
 import hashlib
 import json
+import os
 import hmac
 from app_settings import Config
 from services.supabase_service import supabase_service
@@ -59,25 +60,67 @@ async def create_new_resume(
     if await request.app.state.redis.get(debounce_key):
         raise HTTPException(status_code=429, detail="Request already in progress.")
         
-    # --- PROACTIVE COMPLIANCE GATE (Backend Failsafe) ---
-    c_lower = data.country.lower()
-    if c_lower in ['germany', 'austria', 'switzerland', 'dach']:
-        if not data.user_data.date_of_birth or not data.user_data.date_of_birth.strip():
-            raise HTTPException(
-                status_code=422,
-                detail={"status": "requires_user_action", "message": f"{data.country} standard CVs strictly require a Date of Birth."}
-            )
-        if not data.user_data.nationality or not data.user_data.nationality.strip():
-            raise HTTPException(
-                status_code=422,
-                detail={"status": "requires_user_action", "message": f"Nationality is mandatory in {data.country}."}
-            )
-    elif c_lower == 'japan':
-        if not data.user_data.summary or not data.user_data.summary.strip():
-            raise HTTPException(
-                status_code=422,
-                detail={"status": "requires_user_action", "message": "A Self-PR (Summary) section is mandatory for Japan."}
-            )
+    # --- PROACTIVE COMPLIANCE GATE (Backend Failsafe with Dynamic RAG) ---
+    if getattr(data, 'ignore_compliance', False):
+        logger.info(f"[{request_id}] Compliance gate bypassed (ignore_compliance=True)")
+    else:
+        # Dynamic Schema Loading
+        c_lower = data.country.lower()
+        schema = None
+        cache_key = f"schema:{c_lower}"
+        
+        # 1. Redis Cache
+        if hasattr(request.app.state, "redis") and request.app.state.redis:
+            try:
+                cached_bytes = await request.app.state.redis.get(cache_key)
+                if cached_bytes:
+                    schema = json.loads(cached_bytes.decode('utf-8'))
+            except Exception as e:
+                logger.warning(f"Redis schema cache fetch failed: {str(e)}")
+        
+        # 2. Disk Fallback
+        if not schema:
+            rag_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "rag_schemas")
+            schema_path = os.path.join(rag_dir, c_lower, "knowledge_base.json")
+            if os.path.exists(schema_path):
+                try:
+                    with open(schema_path, 'r', encoding='utf-8') as f:
+                        schema = json.load(f)
+                    if hasattr(request.app.state, "redis") and request.app.state.redis:
+                        await request.app.state.redis.setex(cache_key, 86400, json.dumps(schema))
+                except Exception as e:
+                    logger.warning(f"Failed to read schema from disk for {c_lower}: {str(e)}")
+        
+        if schema:
+            cv_structure = schema.get("cv_structure", {})
+            req_info = cv_structure.get("mandatory_sections", {}).get("personal_info", {}).get("required", [])
+            req_info_lower = [r.lower() for r in req_info]
+            order = cv_structure.get("order", [])
+            order_lower = [o.lower() for o in order]
+            
+            # Dynamic Checks
+            if any("date of birth" in r or "dob" in r for r in req_info_lower):
+                if not data.user_data.date_of_birth or not data.user_data.date_of_birth.strip():
+                    raise HTTPException(status_code=422, detail={"status": "requires_user_action", "message": f"{data.country} standard CVs strictly require a Date of Birth."})
+            
+            if any("nationality" in r for r in req_info_lower):
+                if not data.user_data.nationality or not data.user_data.nationality.strip():
+                    raise HTTPException(status_code=422, detail={"status": "requires_user_action", "message": f"Nationality is mandatory in {data.country}."})
+                    
+            if any("self-pr" in o or "自己pr" in o for o in order_lower) or any("motivation" in o or "志望動機" in o for o in order_lower):
+                if not data.user_data.summary or not data.user_data.summary.strip():
+                    raise HTTPException(status_code=422, detail={"status": "requires_user_action", "message": f"A Summary/Self-PR section is strictly required for {data.country}."})
+            
+            req_langs = schema.get("required_languages", [])
+            if req_langs:
+                user_langs = [l.lower() if isinstance(l, str) else l.get('language', '').lower() for l in (data.user_data.languages or [])]
+                for req_lang in req_langs:
+                    if not any(req_lang.lower() in ul for ul in user_langs):
+                        raise HTTPException(status_code=422, detail={"status": "requires_user_action", "message": f"{req_lang} language proficiency is required in {data.country}."})
+        else:
+            # Graceful Fallback: Basic Completeness
+            if not data.user_data.full_name or not data.user_data.contact.email:
+                raise HTTPException(status_code=422, detail={"status": "requires_user_action", "message": "Basic profile completeness (Name and Email) is required."})
     # --------------------------------------------------
     
     # 4. Synchronous Execution (v16.4.9 Pivot)

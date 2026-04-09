@@ -63,6 +63,7 @@ class CreateResumeRequest(BaseModel):
     country: str = "Germany"
     language: str = "English"
     job_description: Optional[str] = None
+    ignore_compliance: Optional[bool] = False
 
 class UpdateResumeRequest(BaseModel):
     title: Optional[str] = None
