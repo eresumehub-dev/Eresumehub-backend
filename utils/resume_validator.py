@@ -27,9 +27,11 @@ class ResumeComplianceValidator:
     def _load_rules(country: str) -> Dict[str, Any]:
         """
         Load knowledge base for the specified country.
-        Now supports standard mapping and graceful fallback.
         """
-        # 1. Normalize and Map Country (v16.4.19)
+        # 0. Define RAG Source Path (v16.4.19 Fix)
+        base_dir = os.path.join(os.getcwd(), 'rag_schemas')
+        
+        # 1. Normalize and Map Country
         c_norm = country.strip().lower()
         if c_norm == 'dach':
             c_norm = 'germany'
