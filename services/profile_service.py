@@ -62,13 +62,19 @@ class ProfileService:
                 else:
                     profile[key] = []
             
-            extras_list = profile.get('profile_extras', [])
-            profile['extras'] = extras_list[0] if extras_list else {}
+            extras_data = profile.get('profile_extras')
+            if isinstance(extras_data, list) and extras_data:
+                profile['extras'] = extras_data[0]
+            elif isinstance(extras_data, dict):
+                profile['extras'] = extras_data
+            else:
+                profile['extras'] = {}
             
             return profile
             
         except Exception as e:
-            logger.error(f"Error fetching full profile for user {user_id}: {str(e)}")
+            import traceback
+            logger.error(f"Error fetching full profile for user {user_id}: {repr(e)}\n{traceback.format_exc()}")
             raise
 
     async def get_profile_header(self, user_id: str) -> Optional[Dict[str, Any]]:
@@ -148,10 +154,10 @@ class ProfileService:
             from services.resume_service import ResumeService
             resume_service = ResumeService(self.supabase)
             
-            # 1. Parallel Fetch (Header & Resumes ONLY)
+            # 1. Parallel Fetch (Header & Resumes)
             results = await asyncio.gather(
                 self.get_profile_header(user_id),
-                resume_service.get_user_resumes_v2(user_id)
+                self.supabase.get_user_resumes(user_id)
             )
             
             profile = results[0]

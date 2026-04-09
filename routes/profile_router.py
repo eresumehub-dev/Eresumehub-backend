@@ -33,12 +33,14 @@ async def get_profile(user_id: str = Depends(get_current_user_id)):
                 "profile": {
                     "full_name": "",
                     "email": "",
+                    "professional_summary": "",
                     "work_experiences": [],
                     "educations": [],
                     "skills": [],
                     "languages": [],
                     "projects": [],
-                    "certifications": []
+                    "certifications": [],
+                    "extras": {}
                 }
             }
         return {"exists": True, "profile": profile}
