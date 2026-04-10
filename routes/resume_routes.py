@@ -61,7 +61,10 @@ async def create_new_resume(
         raise HTTPException(status_code=429, detail="Request already in progress.")
         
     # --- PROACTIVE COMPLIANCE GATE (Backend Failsafe with Dynamic RAG) ---
-    if getattr(data, 'ignore_compliance', False):
+    # Supporting both camelCase (JSON) and snake_case (standard) for total sync safety
+    unif_ignore = getattr(data, 'ignore_compliance', False) or getattr(data, 'ignoreCompliance', False)
+    
+    if unif_ignore:
         logger.info(f"[{request_id}] Compliance gate bypassed (ignore_compliance=True)")
     else:
         # Dynamic Schema Loading
