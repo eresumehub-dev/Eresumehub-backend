@@ -351,6 +351,21 @@ class AnalyticsService:
             logger.error(f"Error fetching analytics cache: {e}")
             return self._get_empty_analytics(0)
 
+    async def get_active_nudges(self, user_id: str) -> List[Dict[str, Any]]:
+        """
+        Public Entry Point: Fetches nudges by processing cached analytics.
+        If cache is empty, returns [] but triggers a background refresh.
+        """
+        analytics = await self.get_dashboard_analytics(user_id)
+        
+        # Cold Cache Detection (OR branch for safety)
+        if not analytics.get('resume_performance') or not analytics.get('summary', {}).get('total_views'):
+            logger.warning(f"Nudge request on cold/partial cache for {user_id}. triggering refresh.")
+            self.enqueue_refresh(user_id)
+            return []
+
+        return await self.get_active_nudges_from_data(analytics, user_id)
+
     async def refresh_user_analytics_cache(self, user_id: str) -> Dict[str, Any]:
         """
         The 'Heavy' Computation Engine (v15.0.0)
@@ -555,11 +570,8 @@ class AnalyticsService:
                 idx = pd.date_range(end=datetime.now(), periods=30, freq='D').normalize()
                 analytics['trends'] = [{"viewed_at": d.strftime("%Y-%m-%d"), "views": int(c)} for d, c in views_df.set_index('viewed_at_dt').resample('D').size().reindex(idx, fill_value=0).items()]
                 counts_df = views_df['device_type'].value_counts().reset_index()
-                if 'index' in counts_df.columns:
-                    analytics['device_stats'] = counts_df.rename(columns={'index':'device', 'device_type':'count'}).to_dict('records')
-                else:
-                    analytics['device_stats'] = counts_df.rename(columns={'device_type':'device', 'count':'count'}).to_dict('records')
-                analytics['geo_distribution'] = views_df['visitor_country'].value_counts().head(10).reset_index().rename(columns={'index':'country', 'visitor_country':'visitors', 'count':'visitors', 'visitor_country':'country'}).to_dict('records')
+                analytics['device_stats'] = counts_df.rename(columns={'device_type':'device', 'count':'count'}).to_dict('records')
+                analytics['geo_distribution'] = views_df['visitor_country'].value_counts().head(10).reset_index().rename(columns={'visitor_country': 'country', 'count': 'visitors'}).to_dict('records')
 
             # 10. SAVE TO DB CACHE
             analytics = self._convert_numpy(analytics)
@@ -609,10 +621,6 @@ class AnalyticsService:
             return nudges[:2] # Only show top 2 to avoid fatigue
         except Exception as e:
             logger.error(f"Nudge Aggregation Failure: {e}")
-            return []
-
-        except Exception as e:
-            logger.error(f"Trigger Engine Failure: {e}")
             return []
 
     def _get_empty_analytics(self, power_score=0):

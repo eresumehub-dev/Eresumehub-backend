@@ -33,25 +33,21 @@ async def create_new_resume(
     request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
     
     # 1. Pipeline Identity Context (v16.4.0 Clean Identity)
-    # We pass the canonical Auth UUID exclusively to prevent FK mismatches.
     user_ctx = {"auth_user_id": user_id}
 
-    # 2. Generate Idempotency Key (v16.4.1 Serialization Safety)
-    # Using model_dump_json() ensures Pydantic types (EmailStr, UUID) are handled correctly.
+    # 2. Generate Idempotency Key
     payload_json = data.model_dump_json()
     idempotency_hash = hashlib.sha256(f"{user_id}:create:{payload_json}".encode()).hexdigest()
     idempotency_key = f"idempotency:{idempotency_hash}"
     
-    # 3. Infrastructure Guard (v16.3.2 Alignment)
-    # If Redis is offline, we must NOT crash with AttributeError.
+    # Check Infrastructure
     if not hasattr(request.app.state, "redis") or not request.app.state.redis:
-        logger.error(f"[{request_id}] CRITICAL: Redis is OFFLINE. Proceeding with 503 fail-fast.")
-        raise HTTPException(status_code=503, detail="Idempotency engine is offline. Please try again in 30s.")
+        logger.error(f"[{request_id}] CRITICAL: Redis is OFFLINE.")
+        raise HTTPException(status_code=503, detail="Idempotency engine is offline.")
 
     # 3b. Check for existing job (Idempotent Hit)
     existing_job_id = await request.app.state.redis.get(idempotency_key)
     if existing_job_id:
-        logger.info(f"[{request_id}] Idempotent HIT for user {user_id}. Returning existing job {existing_job_id}")
         return {"success": True, "job_id": existing_job_id.decode() if isinstance(existing_job_id, bytes) else existing_job_id, "idempotent": True}
 
     # 3. Distributed Debounce
@@ -59,48 +55,26 @@ async def create_new_resume(
     if await request.app.state.redis.get(debounce_key):
         raise HTTPException(status_code=429, detail="Request already in progress.")
         
-    # --- PROACTIVE COMPLIANCE GATE (Backend Failsafe with Dynamic RAG) ---
-    # Supporting both camelCase (JSON) and snake_case (standard) for total sync safety
+    # --- PROACTIVE COMPLIANCE GATE ---
     unif_ignore = getattr(data, 'ignore_compliance', False) or getattr(data, 'ignoreCompliance', False)
     
-    if unif_ignore:
-        logger.info(f"[{request_id}] Compliance gate bypassed (ignore_compliance=True)")
-    else:
+    if not unif_ignore:
         # Dynamic Schema Loading
         c_lower = data.country.lower()
         schema = None
-        cache_key = f"schema:{c_lower}"
-        
-        # 1. Redis Cache
-        if hasattr(request.app.state, "redis") and request.app.state.redis:
+        rag_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "rag_schemas")
+        schema_path = os.path.join(rag_dir, c_lower, "knowledge_base.json")
+        if os.path.exists(schema_path):
             try:
-                cached_bytes = await request.app.state.redis.get(cache_key)
-                if cached_bytes:
-                    schema = json.loads(cached_bytes.decode('utf-8'))
-            except Exception as e:
-                logger.warning(f"Redis schema cache fetch failed: {str(e)}")
-        
-        # 2. Disk Fallback
-        if not schema:
-            rag_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "rag_schemas")
-            schema_path = os.path.join(rag_dir, c_lower, "knowledge_base.json")
-            if os.path.exists(schema_path):
-                try:
-                    with open(schema_path, 'r', encoding='utf-8') as f:
-                        schema = json.load(f)
-                    if hasattr(request.app.state, "redis") and request.app.state.redis:
-                        await request.app.state.redis.setex(cache_key, 86400, json.dumps(schema))
-                except Exception as e:
-                    logger.warning(f"Failed to read schema from disk for {c_lower}: {str(e)}")
+                with open(schema_path, 'r', encoding='utf-8') as f:
+                    schema = json.load(f)
+            except: pass
         
         if schema:
             cv_structure = schema.get("cv_structure", {})
             req_info = cv_structure.get("mandatory_sections", {}).get("personal_info", {}).get("required", [])
             req_info_lower = [r.lower() for r in req_info]
-            order = cv_structure.get("order", [])
-            order_lower = [o.lower() for o in order]
             
-            # Dynamic Checks
             if any("date of birth" in r or "dob" in r for r in req_info_lower):
                 if not data.user_data.date_of_birth or not data.user_data.date_of_birth.strip():
                     raise HTTPException(status_code=422, detail={"status": "requires_user_action", "message": f"{data.country} standard CVs strictly require a Date of Birth."})
@@ -108,36 +82,15 @@ async def create_new_resume(
             if any("nationality" in r for r in req_info_lower):
                 if not data.user_data.nationality or not data.user_data.nationality.strip():
                     raise HTTPException(status_code=422, detail={"status": "requires_user_action", "message": f"Nationality is mandatory in {data.country}."})
-                    
-            if any("self-pr" in o or "自己pr" in o for o in order_lower) or any("motivation" in o or "志望動機" in o for o in order_lower):
-                if not data.user_data.summary or not data.user_data.summary.strip():
-                    raise HTTPException(status_code=422, detail={"status": "requires_user_action", "message": f"A Summary/Self-PR section is strictly required for {data.country}."})
-            
-            req_langs = schema.get("required_languages", [])
-            if req_langs:
-                user_langs = [l.lower() if isinstance(l, str) else l.get('language', '').lower() for l in (data.user_data.languages or [])]
-                for req_lang in req_langs:
-                    if not any(req_lang.lower() in ul for ul in user_langs):
-                        raise HTTPException(status_code=422, detail={"status": "requires_user_action", "message": f"{req_lang} language proficiency is required in {data.country}."})
-        else:
-            # Graceful Fallback: Basic Completeness
-            if not data.user_data.full_name or not data.user_data.contact.email:
-                raise HTTPException(status_code=422, detail={"status": "requires_user_action", "message": "Basic profile completeness (Name and Email) is required."})
-    # --------------------------------------------------
-    
-    # 4. Synchronous Execution (v16.4.9 Pivot)
+
+    # 4. Synchronous Execution
     start_time = time.time()
     try:
-        await request.app.state.redis.setex(debounce_key, 60, "1") # 60s lock for sync flow
+        await request.app.state.redis.setex(debounce_key, 60, "1")
         
         job_data = data.model_dump()
         job_data["action"] = "create"
         
-        # 1. Pipeline Identity Context (v16.4.0 Clean Identity)
-        # We pass the canonical Auth UUID exclusively to prevent FK mismatches.
-        user_ctx = {"auth_user_id": user_id}
-
-        # 🔑 Direct Pipeline Call (No Worker Tier)
         result = await ResumePipeline.run_for_user(
             request_id=request_id,
             profile_service=ProfileService(supabase_service),
@@ -148,12 +101,7 @@ async def create_new_resume(
             data=job_data
         )
 
-        elapsed = (time.time() - start_time) * 1000
-        logger.info(f"[{request_id}] Resume created SYNCHRONOUSLY in {elapsed:.2f}ms")
-
-        # Clean up debounce lock immediately on success
         await request.app.state.redis.delete(debounce_key)
-
         return {
             "success": True, 
             "data": result["data"],
@@ -161,9 +109,9 @@ async def create_new_resume(
             "compliance_gap": result.get("compliance_gap", [])
         }
     except Exception as e:
-        logger.exception(f"[{request_id}] Synchronous resume creation failed: {e}")
+        logger.exception(f"[{request_id}] Generation failed: {e}")
         await request.app.state.redis.delete(debounce_key)
-        raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/resume/improve")
 async def improve_existing_resume(
@@ -175,21 +123,18 @@ async def improve_existing_resume(
 ):
     """Staff+ Hardened Resume Improvement Flow (Auth UUID)."""
     from utils.file_processor import FileProcessor
-    import os
-    
     request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
     user_ctx = {"auth_user_id": user_id}
     
     debounce_key = f"debounce:improve:{user_id}"
     if await request.app.state.redis.get(debounce_key):
-        raise HTTPException(status_code=429, detail="Analysis in progress.")
-    
+        raise HTTPException(status_code=429, detail="Request already in progress.")
+
     try:
-        await request.app.state.redis.setex(debounce_key, 30, "1")
+        await request.app.state.redis.setex(debounce_key, 60, "1")
         
-        safe_filename = FileProcessor.validate_file(file)
-        ext = os.path.splitext(safe_filename)[1].lower()
-        
+        # 1. Parse File
+        ext = os.path.splitext(file.filename)[1].lower()
         if ext == '.pdf':
             result = await FileProcessor.parse_pdf(file)
         elif ext == '.docx':
@@ -216,139 +161,35 @@ async def improve_existing_resume(
         )
         
         await request.app.state.redis.delete(debounce_key)
-        return {"success": True, "data": result["data"], "id": result["resume_id"]}
+        return {
+            "success": True, 
+            "data": result["improved_text"],  # Canonical key for frontend
+            "id": result["resume_id"]
+        }
     except HTTPException:
         await request.app.state.redis.delete(debounce_key)
         raise
     except Exception as e:
-        logger.error(f"Synchronous improvement failed: {e}")
+        logger.error(f"Improvement failed: {e}")
         await request.app.state.redis.delete(debounce_key)
-        raise HTTPException(status_code=500, detail=f"Improvement failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/resumes", response_model=Dict[str, Any])
 async def list_user_resumes(request: Request, user_id: str = Depends(get_current_user_id)):
-    """Fetch all resumes belonging to the authenticated user (Auth UUID)."""
-    request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
-    try:
-        resumes = await supabase_service.get_user_resumes(user_id)
-        return {"success": True, "data": {"resumes": resumes}}
-    except Exception as e:
-        logger.exception(f"[{request_id}] Resume generation request failed: {e}")
-        # Staff+ Transparency: Temporary str(e) for rapid field diagnosis
-        raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
+    """Fetch all resumes belonging to the authenticated user."""
+    resumes = await supabase_service.get_user_resumes(user_id)
+    return {"success": True, "data": resumes}
 
-@router.get("/resumes/{resume_id}")
-async def get_resume_endpoint(resume_id: str, user_id: str = Depends(get_current_user_id)):
+@router.get("/resume/{resume_id}")
+async def get_resume_detail(resume_id: str, user_id: str = Depends(get_current_user_id)):
+    """Fetch details for a specific resume."""
     resume = await supabase_service.get_resume(resume_id)
-    if not resume:
+    if not resume or resume.get("user_id") != user_id:
         raise HTTPException(status_code=404, detail="Resume not found")
-        
-    # 403 Forbidden for ownership violations (Identified in review)
-    if resume.get("user_id") != user_id:
-        raise HTTPException(status_code=403, detail="Unauthorized access to this resume")
-        
     return {"success": True, "data": resume}
 
-@router.delete("/resumes/{resume_id}")
-async def delete_resume_endpoint(resume_id: str, user_id: str = Depends(get_current_user_id)):
-    resume = await supabase_service.get_resume(resume_id)
-    if not resume:
-        raise HTTPException(status_code=404, detail="Resume not found")
-        
-    if resume.get("user_id") != user_id:
-        raise HTTPException(status_code=403, detail="Forbidden")
-    
-    success = await resume_service.delete_resume(resume_id)
+@router.delete("/resume/{resume_id}")
+async def delete_resume(resume_id: str, user_id: str = Depends(get_current_user_id)):
+    """Soft delete a resume."""
+    success = await supabase_service.delete_resume(resume_id)
     return {"success": success}
-
-@router.post("/resumes/{resume_id}/restore")
-async def restore_resume_endpoint(resume_id: str, user_id: str = Depends(get_current_user_id)):
-    resume = await supabase_service.get_resume(resume_id)
-    if not resume:
-        raise HTTPException(status_code=404, detail="Resume not found")
-        
-    if resume.get("user_id") != user_id:
-        raise HTTPException(status_code=403, detail="Unauthorized to restore this resume")
-        
-    success = await resume_service.restore_resume(resume_id)
-    return {"success": success}
-
-@router.post("/resume/refine")
-async def refine_resume_text(
-    payload: RefineRequest,
-    user_id: str = Depends(get_current_user_id)
-):
-    """Refine a specific text block based on user instruction."""
-    from services.ai_service import ai_service
-    try:
-        refined_text = await ai_service.refine_text(
-            payload.selectedText,
-            payload.userInstruction,
-            payload.currentContext
-        )
-        return {"success": True, "updatedText": refined_text, "sectionId": payload.sectionId}
-    except Exception as e:
-        logger.error(f"Refinement failed: {e}")
-        raise HTTPException(status_code=500, detail="Refinement failed")
-
-@router.post("/ats/scan")
-async def scan_resume_ats(
-    file: UploadFile = File(...),
-    job_description: str = Form(""),
-    user_id: str = Depends(get_current_user_id)
-):
-    """Deep scan resume for ATS compatibility with Staff+ async hardening."""
-    from utils.file_processor import FileProcessor
-    from services.ai_service import ai_service
-    try:
-        content = await FileProcessor.parse_pdf(file)
-        analysis = await ai_service.analyze_resume(
-            content["text"], 
-            "Resume Scan", 
-            "Germany", 
-            job_description
-        )
-        return {"success": True, "analysis": analysis}
-    except Exception as e:
-        logger.error(f"ATS Scan failed: {e}")
-        raise HTTPException(status_code=500, detail="ATS Scan failed")
-
-@router.get("/metrics/jobs")
-async def get_pipeline_metrics(request: Request, user_id: str = Depends(get_current_user_id)):
-    """Elite Observability: Fetch real-time pipeline performance metrics."""
-    # Staff+ Security: Role Gating (v3.12.0)
-    # TODO: Implement full RBAC check against platform_user roles
-    # Currently restricted via session check + internal staff-secret validation
-    staff_key = request.headers.get("X-Staff-Secret")
-    if not staff_key or not hmac.compare_digest(staff_key, Config.API_SECRET_KEY):
-        raise HTTPException(status_code=403, detail="Staff access required for metrics.")
-
-    # Staff+ Check: Ensure redis state is active
-    if not hasattr(request.app.state, "redis") or not request.app.state.redis:
-        raise HTTPException(status_code=503, detail="Metrics engine offline")
-        
-    redis = request.app.state.redis
-    total = await redis.get("metrics:jobs:total")
-    success = await redis.get("metrics:jobs:success")
-    failed = await redis.get("metrics:jobs:failed")
-    
-    # Latency: Get last 50 and average them
-    latencies = await redis.lrange("metrics:jobs:latency", 0, 49)
-    avg_latency = 0
-    if latencies:
-        # Staff+ Safety: Decode bytes if Redis returns them
-        latencies_decoded = [float(l.decode() if isinstance(l, bytes) else l) for l in latencies]
-        avg_latency = sum(latencies_decoded) / len(latencies_decoded)
-        
-    total_int = int(total or 0)
-    
-    return {
-        "success": True,
-        "metrics": {
-            "total_jobs": total_int,
-            "success_rate": f"{round((int(success or 0) / total_int) * 100, 2)}%" if total_int > 0 else "0%",
-            "failure_rate": f"{round((int(failed or 0) / total_int) * 100, 2)}%" if total_int > 0 else "0%",
-            "average_latency_seconds": round(avg_latency, 2)
-        },
-        "request_id": getattr(request.state, "request_id", "unknown")
-    }

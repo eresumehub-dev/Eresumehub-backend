@@ -103,10 +103,21 @@ Return ONLY the corrected JSON object.
 
 # ATS Analysis Prompt
 ATS_ANALYSIS_PROMPT = """
-PERSONA: Expert Recruiter in {target_country}. 
-TASK: Analyze resume for '{job_role}'. 
+PERSONA: Expert Recruiter in {target_country}.
+TASK: Analyze the resume for the role '{job_role}'.
 {rag_context}
 
-RESUME: {resume_text}
-JD: {job_description}
+RESUME:
+{resume_text}
+
+JOB DESCRIPTION:
+{job_description}
+
+Return ONLY a valid JSON object with this exact schema:
+{{
+  "qualification_score": <integer 0-100>,
+  "strengths": ["<string>", ...],
+  "warnings": ["<string>", ...],
+  "suggested_role": "<string or null>"
+}}
 """
