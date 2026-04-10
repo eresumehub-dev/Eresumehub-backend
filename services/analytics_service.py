@@ -493,15 +493,21 @@ class AnalyticsService:
             total_views = len(views_df)
             total_downloads = len(legacy_downloads) + (len(events_df[events_df['event_name'] == 'resume_download']) if not events_df.empty else 0)
             
+            avg_time = views_df['duration_seconds'].median() if not views_df.empty else 0
+            avg_time = 0 if pd.isna(avg_time) else float(round(avg_time, 1))
+
+            p_score = views_df['engagement_score'].mean() if not views_df.empty else 0
+            p_score = 0 if pd.isna(p_score) else int(p_score * 100)
+
             analytics = {
                 "summary": {
                     "total_views": total_views, "engaged_views": int(views_df['is_engaged'].sum()) if not views_df.empty else 0,
                     "unique_viewers": int(views_df['session_id'].nunique()) if not views_df.empty else 0,
                     "total_downloads": total_downloads,
-                    "avg_time_spent": float(round(views_df['duration_seconds'].median(), 1)) if not views_df.empty else 0,
+                    "avg_time_spent": avg_time,
                     "ttv_median": segments["ttu_median"],
                     "conversion_rate": round((total_downloads / max(1, total_views)) * 100, 1),
-                    "power_score": int(views_df['engagement_score'].mean() * 100) if not views_df.empty else 0,
+                    "power_score": p_score,
                     "total_resumes": len(resumes)
                 },
                 "segments": segments,
@@ -533,22 +539,30 @@ class AnalyticsService:
 
             for r in resumes:
                 rv = views_df[views_df['resume_id'] == r['id']] if not views_df.empty else pd.DataFrame()
+                e_score = rv['engagement_score'].mean() if not rv.empty else 0
+                e_score = 0 if pd.isna(e_score) else round(e_score, 2)
+                
                 analytics['resume_performance'].append({
                     "id": r['id'], "title": r['title'], "views": len(rv),
-                    "engagement_score": round(rv['engagement_score'].mean(), 2) if not rv.empty else 0,
+                    "engagement_score": e_score,
                     "success_probability": success_predictions.get(r['id'], 0.1),
                     "downloads": len(rv[rv['source'] == 'legacy']) if not rv.empty and 'source' in rv.columns else 0,
-                    "insight_tag": "Trending" if len(rv) > 10 and rv['engagement_score'].mean() > 0.6 else "Stable"
+                    "insight_tag": "Trending" if len(rv) > 10 and e_score > 0.6 else "Stable"
                 })
 
             if not views_df.empty:
                 views_df['viewed_at_dt'] = pd.to_datetime(views_df['viewed_at']).dt.tz_localize(None)
                 idx = pd.date_range(end=datetime.now(), periods=30, freq='D').normalize()
                 analytics['trends'] = [{"viewed_at": d.strftime("%Y-%m-%d"), "views": int(c)} for d, c in views_df.set_index('viewed_at_dt').resample('D').size().reindex(idx, fill_value=0).items()]
-                analytics['device_stats'] = views_df['device_type'].value_counts().reset_index().rename(columns={'index':'device', 'device_type':'count'}).to_dict('records')
-                analytics['geo_distribution'] = views_df['visitor_country'].value_counts().head(10).reset_index().rename(columns={'index':'country', 'visitor_country':'visitors'}).to_dict('records')
+                counts_df = views_df['device_type'].value_counts().reset_index()
+                if 'index' in counts_df.columns:
+                    analytics['device_stats'] = counts_df.rename(columns={'index':'device', 'device_type':'count'}).to_dict('records')
+                else:
+                    analytics['device_stats'] = counts_df.rename(columns={'device_type':'device', 'count':'count'}).to_dict('records')
+                analytics['geo_distribution'] = views_df['visitor_country'].value_counts().head(10).reset_index().rename(columns={'index':'country', 'visitor_country':'visitors', 'count':'visitors', 'visitor_country':'country'}).to_dict('records')
 
             # 10. SAVE TO DB CACHE
+            analytics = self._convert_numpy(analytics)
             await self._save_to_cache(user_id, analytics)
             return analytics
 
@@ -590,14 +604,12 @@ class AnalyticsService:
                             "message": f"Readers are pausing {round(ttv, 1)}s before scrolling.",
                             "confidence": min(0.95, views / 30), "action": "Relocate Summary", "impact": "🔥 High impact"
                         })
-            return nudges
+            # Final Prioritization (Impact x Confidence)
+            nudges.sort(key=lambda x: x.get('confidence', 0), reverse=True)
+            return nudges[:2] # Only show top 2 to avoid fatigue
         except Exception as e:
             logger.error(f"Nudge Aggregation Failure: {e}")
             return []
-
-            # 3. Final Prioritization (Impact x Confidence)
-            nudges.sort(key=lambda x: x['confidence'], reverse=True)
-            return nudges[:2] # Only show top 2 to avoid fatigue
 
         except Exception as e:
             logger.error(f"Trigger Engine Failure: {e}")
@@ -656,6 +668,4 @@ class AnalyticsService:
             "conversion_median": 8.0   # 8% conversion to download
         }
 
-# Global Singleton Export (v16.4.12 Hotfix)
-from services.supabase_service import supabase_service
-analytics_service = AnalyticsService(supabase_service)
+# Instance must be created dynamically to prevent module-level DB connections.

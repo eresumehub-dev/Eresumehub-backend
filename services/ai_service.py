@@ -20,6 +20,10 @@ import difflib
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type, before_sleep_log
 from configurations.countries import get_country_context, get_country_fallback_data
 from app_settings import Config
+from services.prompts.core_prompts import (
+    ATS_ANALYSIS_PROMPT, EXTRACTION_PROMPT, 
+    TAILOR_PROMPT, COMPLIANCE_FIX_PROMPT
+)
 
 load_dotenv()
 
@@ -146,19 +150,23 @@ class AIService:
             if not model: continue
             try:
                 logger.info(f"Targeting Groq ({model})...")
+                groq_payload = {
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": temperature,
+                    "max_tokens": max_tokens
+                }
+                
+                if "JSON" in prompt.upper():
+                    groq_payload["response_format"] = {"type": "json_object"}
+
                 response = await self.client.post(
                     self.groq_url,
                     headers={
                         "Authorization": f"Bearer {self.groq_api_key}",
                         "Content-Type": "application/json"
                     },
-                    json={
-                        "model": model,
-                        "messages": [{"role": "user", "content": prompt}],
-                        "temperature": temperature,
-                        "max_tokens": max_tokens,
-                        "response_format": {"type": "json_object"} if "JSON" in prompt.upper() else None
-                    }
+                    json=groq_payload
                 )
                     
                 if response.status_code == 200:
@@ -265,6 +273,16 @@ class AIService:
                     await asyncio.sleep(1)
                 
                 logger.info(f"Targeting OpenRouter ({model})...")
+                or_payload = {
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": temperature,
+                    "max_tokens": max_tokens
+                }
+                
+                if "JSON" in prompt.upper():
+                    or_payload["response_format"] = {"type": "json_object"}
+
                 response = await self.client.post(
                     self.openrouter_url,
                     headers={
@@ -273,13 +291,7 @@ class AIService:
                         "HTTP-Referer": "https://eresumehub.com",
                         "X-Title": "EresumeHub"
                     },
-                    json={
-                        "model": model,
-                        "messages": [{"role": "user", "content": prompt}],
-                        "temperature": temperature,
-                        "max_tokens": max_tokens,
-                        "response_format": {"type": "json_object"} if "JSON" in prompt.upper() else None
-                    }
+                    json=or_payload
                 )
                     
                 if response.status_code == 200:
@@ -513,7 +525,13 @@ class AIService:
             if vec_resume and vec_jd: semantic_score = self._cosine_similarity(vec_resume, vec_jd) * 100
         except Exception: pass
 
-        prompt = f"PERSONA: Expert Recruiter in {target_country}. TASK: Analyze resume for '{job_role}'. {rag_context_str}\nRESUME: {resume_text[:8000]}\nJD: {job_description[:2000]}"
+        prompt = ATS_ANALYSIS_PROMPT.format(
+            target_country=target_country,
+            job_role=job_role,
+            rag_context=rag_context_str,
+            resume_text=resume_text[:8000],
+            job_description=job_description[:2000]
+        )
         api_res = await self.call_model(prompt, temperature=0.1, max_tokens=1500, request_id=request_id)
         try:
             data = json.loads(self._clean_json_string(api_res.get("content")))
@@ -543,20 +561,10 @@ class AIService:
             "skills": ["string"]
         }
         
-        prompt = f"""
-        TASK: Parse the following RESUME TEXT into the EXACT JSON schema provided below.
-        
-        RULES:
-        1. Extract the 'full_name' with absolute priority. If not explicitly found, look at the header or email prefix.
-        2. Format all dates as 'YYYY-MM' (e.g., '2023-01').
-        3. Ensure 'achievements' in work experience is a LIST of strings, NOT a single paragraph.
-        4. If a field is missing, return null or an empty list [].
-        
-        SCHEMA: {json.dumps(extraction_schema)}
-        
-        TEXT:
-        {resume_text[:12000]}
-        """
+        prompt = EXTRACTION_PROMPT.format(
+            schema_json=json.dumps(extraction_schema),
+            resume_text=resume_text[:12000]
+        )
         
         api_res = await self.call_api(prompt, temperature=0.0, max_tokens=3500, request_id=request_id)
         
@@ -625,62 +633,19 @@ class AIService:
         if compliance_gap:
              compliance_injection = f"\n        🚨 COMPLIANCE GAP (ADAPT REQUIRED):\n        The applicant profile is currently missing mandatory {country} fields: {', '.join(compliance_gap)}.\n        DO NOT hallucinate these values. Instead, ensure the professional summary and achievements are exceptionally strong and quantified to mitigate these missing requirements."
 
-        prompt = f"""
-        SYSTEM ROLE: You are an expert {country} CV writer.
-        {compliance_injection}
-        
-        You MUST follow ALL rules below.
-        If ANY rule is violated → response is INVALID.
-        
-        VALIDATION RULES:
-        - The resume MUST match the job title EXACTLY: '{job_title}'
-        - DO NOT change or generalize the role
-        - DO NOT fallback to generic roles (e.g. laborer)
-        
-        🚨 STRICT RULE ON WEAK VERBS:
-        DO NOT use any of the following:
-        - Helped
-        - Contributing
-        - Assisted
-        - Participated
-        If present → REWRITE automatically using strong ownership verbs ("Architected", "Engineered", "Spearheaded").
-        
-        🚨 STRICT RULE ON METRICS:
-        Every bullet MUST include:
-        - numbers
-        - scale
-        - impact
-        If unknown → estimate realistically based on the role and industry.
-        Example: "Built backend API" (WRONG) -> "Built backend API handling 5K+ monthly users" (CORRECT).
-        
-        - CONCURRENT ROLES: If the user has multiple overlapping 'Present' roles, clarify them (e.g. mark one as 'Consulting' or 'Part-time') to avoid recruiter friction.
-        
-        INPUT DATA: {json.dumps(user_data)}
-        JOB DESCRIPTION: {job_description[:1500]}
-        
-        LANGUAGE RULES (Headings, Verbs):
-        {language_template_json}
-        
-        MARKET RULES:
-        {knowledge_base_json}
-        
-        STRUCTURE ORDER:
-        {cv_structure_order}
-        
-        OUTPUT REQUIREMENTS:
-        - Output MUST be a valid JSON object matching the schema below.
-        - NEVER combine words artificially (e.g. "highimpact" MUST be "high-impact"). Maintain strict spelling and punctuation.
-        - Use {country}-specific professional terminology and ATS keywords.
-        - Use {language} section headings (based on LANGUAGE RULES).
-        - Follow {country} tone (formal, no pronouns if applicable).
-        - Place Professional Summary at TOP.
-        - Use action verbs from provided list where applicable.
-        - Include metrics in bullet points.
-        - Do NOT invent data; only refine and re-structure the existing experience.
-        - Return ONLY the JSON object.
-        
-        SCHEMA: {json.dumps(schema)}
-        """
+        prompt = TAILOR_PROMPT.format(
+            country=country,
+            compliance_injection=compliance_injection,
+            job_title=job_title,
+            user_data_json=json.dumps(user_data),
+            job_description=job_description[:1500],
+            language_template_json=language_template_json,
+            knowledge_base_json=knowledge_base_json,
+            cv_structure_order=cv_structure_order,
+            country_name=country, # for those that use {country}
+            language=language,
+            schema_json=json.dumps(schema)
+        )
         
         logger.info(f"[{request_id}] JOB TITLE EXECUTED: '{job_title}'")
         logger.info(f"[{request_id}] RAG DATA USED: Language={len(language_template_json)} bytes, KB={len(knowledge_base_json)} bytes")
@@ -715,28 +680,11 @@ class AIService:
 
     async def enforce_compliance_correction(self, json_payload: Dict[str, Any], violations: List[str], country: str = "Germany", request_id: str = "correction") -> Dict[str, Any]:
         """Force AI to fix specific compliance violations in the generated JSON via FULL regeneration."""
-        prompt = f"""
-        SYSTEM ROLE: You are an expert {country} CV auditor and re-writer.
-        
-        TASK:
-        The following JSON resume content violates strict compliance rules for the {country} market.
-        You must RE-GENERATE the ENTIRE JSON resume content from scratch to be 100% compliant.
-        
-        VIOLATIONS TO FIX:
-        {chr(10).join(['- ' + v for v in violations])}
-        
-        STRICT RE-WRITE RULES:
-        1. FULL REGENERATION: Do NOT patch partial fields. Re-generate the WHOLE JSON document for perfect tone and section coherence.
-        2. METRICS: Every single bullet point MUST now have a number, percentage, or specific scale.
-        3. VERBS: Absolutely NO "Helped", "Contributing", or "Assisted". Use "Spearheaded", "Directed", "Executed", "Engineered".
-        4. MANDATORY SECTIONS: Ensure a Language section exists with CEFR levels (A1-C2).
-        5. EDUCATION: Remove any education below Bachelor's level (e.g., High School/Pre-University).
-        
-        INPUT JSON:
-        {json.dumps(json_payload)}
-        
-        Return ONLY the corrected JSON object.
-        """
+        prompt = COMPLIANCE_FIX_PROMPT.format(
+            country=country,
+            violations_list=chr(10).join(['- ' + v for v in violations]),
+            payload_json=json.dumps(json_payload)
+        )
         
         api_res = await self.call_model(prompt, temperature=0.1, max_tokens=3000, request_id=request_id)
         

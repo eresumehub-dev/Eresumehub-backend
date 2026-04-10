@@ -1,9 +1,13 @@
 import json
 import os
 import logging
+import functools
 from typing import Dict, Any, List
 
 logger = logging.getLogger(__name__)
+
+class ConfigurationError(Exception):
+    pass
 
 RAG_SCHEMAS_DIR = os.getenv("RAG_SCHEMAS_DIR", "rag_schemas")
 
@@ -14,9 +18,10 @@ class RAGRuleLoader:
     """
     
     @staticmethod
+    @functools.lru_cache(maxsize=32)
     def load_country_rules(country: str, language_code: str = "en_US") -> Dict[str, Any]:
         """
-        Load rules for a specific country and language.
+        Load rules for a specific country and language with LRU cache.
         """
         country_lower = country.lower()
         kb_path = os.path.join(RAG_SCHEMAS_DIR, country_lower, "knowledge_base.json")
@@ -32,16 +37,19 @@ class RAGRuleLoader:
         }
         
         # 1. Load Knowledge Base (Structural Rules)
-        if os.path.exists(kb_path):
-            try:
-                with open(kb_path, "r", encoding="utf-8") as f:
+        if not os.path.exists(kb_path):
+            raise ConfigurationError(f"RulesNotFound: Knowledge base for {country} missing at {kb_path}")
+            
+        try:
+            with open(kb_path, "r", encoding="utf-8") as f:
                     kb = json.load(f)
                     rules["section_order"] = kb.get("cv_structure", {}).get("order", [])
                     rules["date_format"] = kb.get("cultural_rules", {}).get("date_format", "YYYY.MM.DD")
                     rules["required_fields"] = kb.get("cv_structure", {}).get("mandatory_sections", {}).get("personal_info", {}).get("required", [])
                     rules["mandatory_sections"] = list(kb.get("cv_structure", {}).get("mandatory_sections", {}).keys())
-            except Exception as e:
-                logger.error(f"Error loading KB rules from {kb_path}: {e}")
+        except Exception as e:
+            logger.error(f"Error loading KB rules from {kb_path}: {e}")
+            raise ConfigurationError(f"Failed to load knowledge base rules for {country}") from e
         
         # 2. Load Language Template (Localized Rules)
         if os.path.exists(lang_path):

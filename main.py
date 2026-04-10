@@ -43,7 +43,7 @@ Config.validate()
 # 2. Services & Lifespan
 # -----------------------------
 from services.supabase_service import supabase_service
-from services.analytics_service import analytics_service
+from services.analytics_service import AnalyticsService
 logger = logging.getLogger(__name__)
 
 @asynccontextmanager
@@ -55,6 +55,9 @@ async def lifespan(app: FastAPI):
     if hasattr(supabase_service, "initialize"):
         supabase_service.initialize(Config.SUPABASE_URL, Config.SUPABASE_KEY)
             
+    # Initialize Analytics Service into global application state
+    app.state.analytics_service = AnalyticsService(supabase_service)
+    
     # Initialize Redis SAFELY (v16.4.5 Sync Architecture)
     try:
         raw_url = Config.REDIS_URL

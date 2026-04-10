@@ -5,10 +5,10 @@ from models.event_schema import StandardEvent
 from typing import Dict, Any, Optional, List
 import logging
 
+import logging
+
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/analytics", tags=["Analytics"])
-analytics_service = AnalyticsService(supabase_service)
-
 @router.post("/events/track")
 async def track_event(request: Request, event: StandardEvent):
     """
@@ -98,9 +98,10 @@ async def view_heartbeat(view_id: str, data: Dict[str, Any] = Body(...)):
 from utils.auth_deps import get_current_user_id
 
 @router.get("/dashboard")
-async def get_dashboard_stats(user_id: str = Depends(get_current_user_id)):
+async def get_dashboard_stats(request: Request, user_id: str = Depends(get_current_user_id)):
     """Get aggregated analytics from the Intelligence Engine (V12)"""
     try:
+        analytics_service = request.app.state.analytics_service
         stats = await analytics_service.get_dashboard_analytics(user_id)
         return {"success": True, "data": stats}
     except Exception as e:
@@ -129,9 +130,10 @@ async def log_download(request: Request, download_data: Dict[str, Any] = Body(..
         return {"success": False, "error": str(e)}
 
 @router.get("/nudges")
-async def get_active_nudges(user_id: str = Depends(get_current_user_id)):
+async def get_active_nudges(request: Request, user_id: str = Depends(get_current_user_id)):
     """Fetch prioritized, confidence-scored nudges (v14.0.0)"""
     try:
+        analytics_service = request.app.state.analytics_service
         nudges = await analytics_service.get_active_nudges(user_id)
         return {"success": True, "data": nudges}
     except Exception as e:

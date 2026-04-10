@@ -17,7 +17,6 @@ from schemas.resume_schemas import (
     CreateResumeRequest, UpdateResumeRequest, RefineRequest, APIResponse
 )
 from utils.auth_deps import get_current_user_id, get_current_user_ids
-from services.analytics_service import analytics_service
 
 router = APIRouter(prefix="/api/v1", tags=["Resumes"])
 logger = logging.getLogger(__name__)
@@ -144,7 +143,7 @@ async def create_new_resume(
             profile_service=ProfileService(supabase_service),
             ai_service=ai_service,
             supabase_service=supabase_service,
-            analytics_service=analytics_service,
+            analytics_service=request.app.state.analytics_service,
             user=user_ctx,
             data=job_data
         )
@@ -206,7 +205,7 @@ async def improve_existing_resume(
             profile_service=ProfileService(supabase_service),
             ai_service=ai_service,
             supabase_service=supabase_service,
-            analytics_service=analytics_service,
+            analytics_service=request.app.state.analytics_service,
             user=user_ctx,
             data={
                 "action": "improve",

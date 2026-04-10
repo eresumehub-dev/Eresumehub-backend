@@ -144,7 +144,7 @@ class ResumePipeline:
                 message=f"Mandatory fields missing for {country}: {', '.join(missing_fields)}",
                 status_hint=422
             )
-            
+        else:
             # HYBRID MODE: Log gap and continue if bypass requested
             self.logger.info(f"[{self.request_id}] ⚠️ Compliance gap ignored via bypass for {country}: {missing_fields}.")
             print(f"[{self.request_id}] [Pipeline] Compliance gap detected (BYPASSED): {missing_fields}")
