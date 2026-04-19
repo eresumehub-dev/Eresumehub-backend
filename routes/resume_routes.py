@@ -56,12 +56,9 @@ async def create_new_resume(
         raise HTTPException(status_code=429, detail="Request already in progress.")
         
     # --- PROACTIVE COMPLIANCE GATE ---
-    unif_ignore = getattr(data, 'ignore_compliance', False) or getattr(data, 'ignoreCompliance', False)
-    
-    if not unif_ignore:
-        # Dynamic Schema Loading
-        c_lower = data.country.lower()
-        schema = None
+    # Dynamic Schema Loading
+    c_lower = data.country.lower()
+    schema = None
         rag_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "rag_schemas")
         schema_path = os.path.join(rag_dir, c_lower, "knowledge_base.json")
         if os.path.exists(schema_path):
@@ -70,18 +67,18 @@ async def create_new_resume(
                     schema = json.load(f)
             except: pass
         
-        if schema:
-            cv_structure = schema.get("cv_structure", {})
-            req_info = cv_structure.get("mandatory_sections", {}).get("personal_info", {}).get("required", [])
-            req_info_lower = [r.lower() for r in req_info]
-            
-            if any("date of birth" in r or "dob" in r for r in req_info_lower):
-                if not data.user_data.date_of_birth or not data.user_data.date_of_birth.strip():
-                    raise HTTPException(status_code=422, detail={"status": "requires_user_action", "message": f"{data.country} standard CVs strictly require a Date of Birth."})
-            
-            if any("nationality" in r for r in req_info_lower):
-                if not data.user_data.nationality or not data.user_data.nationality.strip():
-                    raise HTTPException(status_code=422, detail={"status": "requires_user_action", "message": f"Nationality is mandatory in {data.country}."})
+    if schema:
+        cv_structure = schema.get("cv_structure", {})
+        req_info = cv_structure.get("mandatory_sections", {}).get("personal_info", {}).get("required", [])
+        req_info_lower = [r.lower() for r in req_info]
+        
+        if any("date of birth" in r or "dob" in r for r in req_info_lower):
+            if not data.user_data.date_of_birth or not data.user_data.date_of_birth.strip():
+                raise HTTPException(status_code=422, detail={"status": "requires_user_action", "message": f"{data.country} standard CVs strictly require a Date of Birth."})
+        
+        if any("nationality" in r for r in req_info_lower):
+            if not data.user_data.nationality or not data.user_data.nationality.strip():
+                raise HTTPException(status_code=422, detail={"status": "requires_user_action", "message": f"Nationality is mandatory in {data.country}."})
 
     # 4. Synchronous Execution
     start_time = time.time()
