@@ -58,7 +58,8 @@ class ProfileService:
             # 3. Defensive Post-processing
             for key in ['work_experiences', 'educations', 'projects', 'certifications']:
                 if profile.get(key):
-                    profile[key].sort(key=lambda x: x.get('display_order', 0))
+                    # Staff+ Guard (v16.4.19): Handle None values in display_order to prevent sort TypeError
+                    profile[key].sort(key=lambda x: (x.get('display_order') or 0))
                 else:
                     profile[key] = []
             

@@ -34,10 +34,26 @@ async def get_country_schema(country: str):
     Get the knowledge base schema for a specific country.
     """
     try:
-        schema_path = os.path.join(RAG_SCHEMAS_DIR, country, "knowledge_base.json")
+        # 🧬 v16.4.19 - Case-Insensitive Normalization
+        c_norm = country.strip().lower()
+        if c_norm == 'dach':
+            c_norm = 'germany'
+            
+        # Find the actual directory that matches the normalized name
+        actual_dir = None
+        if os.path.exists(RAG_SCHEMAS_DIR):
+            for d in os.listdir(RAG_SCHEMAS_DIR):
+                if d.lower() == c_norm and os.path.isdir(os.path.join(RAG_SCHEMAS_DIR, d)):
+                    actual_dir = d
+                    break
+
+        if not actual_dir:
+            raise HTTPException(status_code=404, detail=f"Schema not found for country: {country}")
+            
+        schema_path = os.path.join(RAG_SCHEMAS_DIR, actual_dir, "knowledge_base.json")
         
         if not os.path.exists(schema_path):
-            raise HTTPException(status_code=404, detail=f"Schema not found for country: {country}")
+            raise HTTPException(status_code=404, detail=f"knowledge_base.json missing for {actual_dir}")
             
         with open(schema_path, 'r', encoding='utf-8') as f:
             schema = json.load(f)
