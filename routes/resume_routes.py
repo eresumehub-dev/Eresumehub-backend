@@ -59,13 +59,13 @@ async def create_new_resume(
     # Dynamic Schema Loading
     c_lower = data.country.lower()
     schema = None
-        rag_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "rag_schemas")
-        schema_path = os.path.join(rag_dir, c_lower, "knowledge_base.json")
-        if os.path.exists(schema_path):
-            try:
-                with open(schema_path, 'r', encoding='utf-8') as f:
-                    schema = json.load(f)
-            except: pass
+    rag_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "rag_schemas")
+    schema_path = os.path.join(rag_dir, c_lower, "knowledge_base.json")
+    if os.path.exists(schema_path):
+        try:
+            with open(schema_path, 'r', encoding='utf-8') as f:
+                schema = json.load(f)
+        except: pass
         
     if schema:
         cv_structure = schema.get("cv_structure", {})
