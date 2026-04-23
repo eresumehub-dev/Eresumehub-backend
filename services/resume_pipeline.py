@@ -132,22 +132,22 @@ class ResumePipeline:
             missing_fields = [err.get("field", "unknown") for err in validation.get("errors", [])]
             self.compliance_gap = missing_fields
             
-        # 🧬 v16.4.19 - Restoring Server-Side Gating
-        # Standardized to snake_case for consistency with route-level unification
-        ignore_compliance = data.get("ignore_compliance", False) or data.get("ignoreCompliance", False)
-        
-        if not ignore_compliance:
-            self.logger.warning(f"[{self.request_id}] 🛑 Compliance Block: {country} requires {missing_fields}")
-            # 422: Unprocessable Entity (Standard for compliance gating)
-            raise PipelineError(
-                code="COMPLIANCE_REQUIRED", 
-                message=f"Mandatory fields missing for {country}: {', '.join(missing_fields)}",
-                status_hint=422
-            )
-        else:
-            # HYBRID MODE: Log gap and continue if bypass requested
-            self.logger.info(f"[{self.request_id}] ⚠️ Compliance gap ignored via bypass for {country}: {missing_fields}.")
-            print(f"[{self.request_id}] [Pipeline] Compliance gap detected (BYPASSED): {missing_fields}")
+            # 🧬 v16.4.19 - Restoring Server-Side Gating
+            # Standardized to snake_case for consistency with route-level unification
+            ignore_compliance = data.get("ignore_compliance", False) or data.get("ignoreCompliance", False)
+            
+            if not ignore_compliance:
+                self.logger.warning(f"[{self.request_id}] 🛑 Compliance Block: {country} requires {missing_fields}")
+                # 422: Unprocessable Entity (Standard for compliance gating)
+                raise PipelineError(
+                    code="COMPLIANCE_REQUIRED", 
+                    message=f"Mandatory fields missing for {country}: {', '.join(missing_fields)}",
+                    status_hint=422
+                )
+            else:
+                # HYBRID MODE: Log gap and continue if bypass requested
+                self.logger.info(f"[{self.request_id}] ⚠️ Compliance gap ignored via bypass for {country}: {missing_fields}.")
+                print(f"[{self.request_id}] [Pipeline] Compliance gap detected (BYPASSED): {missing_fields}")
             
         return country
 

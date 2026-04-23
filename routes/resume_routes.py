@@ -10,7 +10,7 @@ import hmac
 from app_settings import Config
 from services.supabase_service import supabase_service
 from services.resume_service import resume_service
-from services.resume_pipeline import ResumePipeline
+from services.resume_pipeline import ResumePipeline, PipelineError
 from services.profile_service import ProfileService
 from services.ai_service import ai_service
 from schemas.resume_schemas import (
@@ -105,6 +105,10 @@ async def create_new_resume(
             "id": result["resume_id"],
             "compliance_gap": result.get("compliance_gap", [])
         }
+    except PipelineError as e:
+        logger.warning(f"[{request_id}] Pipeline Error: {e.message}")
+        await request.app.state.redis.delete(debounce_key)
+        raise HTTPException(status_code=e.status_hint, detail=e.message)
     except Exception as e:
         logger.exception(f"[{request_id}] Generation failed: {e}")
         await request.app.state.redis.delete(debounce_key)
