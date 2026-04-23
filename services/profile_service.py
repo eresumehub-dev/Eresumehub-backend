@@ -463,7 +463,7 @@ class ProfileService:
                     'profile_id': profile_id,
                     'name': cert.get('name'),
                     'issuing_organization': cert.get('issuing_organization'),
-                    'issue_date': self._sanitize_date(cert.get('issue_date')),
+                    'issue_date': self._sanitize_date(cert.get('issue_date')) or "2000-01-01",
                     'display_order': idx
                 })
             
