@@ -59,6 +59,8 @@ class SupabaseService:
             logger.error(f"Error creating job record: {e}")
             raise
 
+    async def update_job_status(self, job_id: str, updates: Dict[str, Any]):
+        """Update job progress/status with atomic retries."""
         try:
             # v16.5.0: Always refresh heartbeat on any status update
             updates["last_heartbeat"] = datetime.now(timezone.utc).isoformat()

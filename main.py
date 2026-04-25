@@ -1,7 +1,7 @@
 from utils.logging_config import setup_logging
 setup_logging()
 
-from fastapi import FastAPI, Request, HTTPException, Depends, Header, Query, BackgroundTasks, UploadFile, File
+from fastapi import FastAPI, Request, HTTPException, Depends, Query, BackgroundTasks, UploadFile, File
 from fastapi.responses import JSONResponse, StreamingResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -13,7 +13,6 @@ import logging
 import uuid
 import asyncio
 import re
-import hmac
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 from contextlib import asynccontextmanager
@@ -133,13 +132,6 @@ limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-async def verify_api_key(api_key: str = Header(None, alias="X-API-Key")):
-    """Constant-time API Key verification."""
-    if not api_key:
-        raise HTTPException(status_code=401, detail="API Key missing")
-    if not hmac.compare_digest(api_key, Config.API_SECRET_KEY):
-        raise HTTPException(status_code=403, detail="Invalid API Key")
-    return api_key
 
 # -----------------------------
 # 5. Global Exception Shielding
