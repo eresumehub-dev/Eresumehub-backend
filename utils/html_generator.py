@@ -7,7 +7,10 @@ class HTMLGenerator:
     """
     Utility class for generating HTML from Jinja2 templates for resumes.
     """
-    _env = Environment(loader=FileSystemLoader("templates"))
+    _env = Environment(
+        loader=FileSystemLoader("templates"),
+        autoescape=True
+    )
 
     @staticmethod
     def generate_html(text: str, full_name: str, contact_info: dict, user_data: dict, rag_data: dict, template_style: str = "professional") -> str:
