@@ -36,9 +36,8 @@ class ProfileService:
         Reserved for Resume Editor and Detailed views.
         """
         try:
-            # 1. Canonical Identity Fetch (v16.0.0)
-            # Standardized on auth_user_id globally.
-            response = await self.supabase.client.table('user_profiles')\
+            # Fetch profile graph and username in parallel (v16.5.2)
+            profile_task = self.supabase.client.table('user_profiles')\
                 .select("""
                     *,
                     work_experiences(*),
@@ -49,11 +48,23 @@ class ProfileService:
                 """)\
                 .eq('user_id', user_id)\
                 .execute()
+                
+            user_task = self.supabase.client.table('users')\
+                .select("username")\
+                .eq("auth_user_id", user_id)\
+                .maybe_single()\
+                .execute()
 
-            if not response.data:
+            p_res, u_res = await asyncio.gather(profile_task, user_task)
+
+            if not p_res.data:
                 return None
             
-            profile = response.data[0]
+            profile = p_res.data[0]
+            
+            # Inject username from public.users table if available
+            if u_res and u_res.data:
+                profile['username'] = u_res.data.get('username')
             
             # 3. Defensive Post-processing
             for key in ['work_experiences', 'educations', 'projects', 'certifications']:
@@ -85,17 +96,28 @@ class ProfileService:
         Payload size target: <2KB.
         """
         try:
-            # [STRICT V16.0.0] Canonical fetch only
-            # [STRICT V16.0.0] Selecting only existing columns
-            response = await self.supabase.client.table('user_profiles')\
+            # Parallel fetch of profile and username for dashboard context (v16.5.2)
+            profile_task = self.supabase.client.table('user_profiles')\
                 .select("id, user_id, full_name, professional_summary, photo_url, city, country")\
                 .eq('user_id', user_id)\
                 .execute()
+                
+            user_task = self.supabase.client.table('users')\
+                .select("username")\
+                .eq("auth_user_id", user_id)\
+                .maybe_single()\
+                .execute()
+                
+            p_res, u_res = await asyncio.gather(profile_task, user_task)
             
-            if not response.data:
+            if not p_res.data:
                 return None
             
-            profile = response.data[0]
+            profile = p_res.data[0]
+            
+            # Inject username from public.users table if available
+            if u_res and u_res.data:
+                profile['username'] = u_res.data.get('username')
             # Add shallow defaults to maintain contract
             profile.update({
                 "work_experiences": [], "educations": [], "projects": [], 
