@@ -68,18 +68,35 @@ async def create_new_resume(
                 schema = json.load(f)
         except: pass
         
-    if schema:
+    if schema and not data.ignore_compliance:
         cv_structure = schema.get("cv_structure", {})
         req_info = cv_structure.get("mandatory_sections", {}).get("personal_info", {}).get("required", [])
         req_info_lower = [r.lower() for r in req_info]
         
+        # 1. Date of Birth
         if any("date of birth" in r or "dob" in r for r in req_info_lower):
             if not data.user_data.date_of_birth or not data.user_data.date_of_birth.strip():
                 raise HTTPException(status_code=422, detail={"status": "requires_user_action", "message": f"{data.country} standard CVs strictly require a Date of Birth."})
         
+        # 2. Nationality
         if any("nationality" in r for r in req_info_lower):
             if not data.user_data.nationality or not data.user_data.nationality.strip():
                 raise HTTPException(status_code=422, detail={"status": "requires_user_action", "message": f"Nationality is mandatory in {data.country}."})
+
+        # 3. Email
+        if any("email" in r for r in req_info_lower):
+            if not data.user_data.contact.email or not data.user_data.contact.email.strip():
+                raise HTTPException(status_code=422, detail={"status": "requires_user_action", "message": f"A valid email address is required for {data.country} resumes."})
+
+        # 4. Phone
+        if any("phone" in r for r in req_info_lower):
+            if not data.user_data.contact.phone or not data.user_data.contact.phone.strip():
+                raise HTTPException(status_code=422, detail={"status": "requires_user_action", "message": f"A contact phone number is mandatory for {data.country} resumes."})
+
+        # 5. City
+        if any("city" in r for r in req_info_lower):
+            if not data.user_data.contact.city or not data.user_data.contact.city.strip():
+                raise HTTPException(status_code=422, detail={"status": "requires_user_action", "message": f"City of residence is mandatory for {data.country} resumes."})
 
     # 4. Async Execution (v16.5.0): Serverless Background Workers
     try:

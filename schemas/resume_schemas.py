@@ -3,8 +3,8 @@ from typing import List, Optional, Dict, Any, Union
 from pydantic import BaseModel, Field, EmailStr
 
 class ContactInfo(BaseModel):
-    email: EmailStr
-    phone: str = Field(..., pattern=r'^\+?[0-9][0-9\s-]{1,20}$')
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = Field(None, pattern=r'^$|^\+?[0-9][0-9\s-]{1,20}$')
     street_address: Optional[str] = None
     postal_code: Optional[str] = None
     city: Optional[str] = None
