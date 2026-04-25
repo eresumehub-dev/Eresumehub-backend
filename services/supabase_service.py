@@ -7,7 +7,7 @@ Handles all database operations for E-resumehub
 import os
 import uuid
 from typing import Optional, Dict, List, Any
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import asyncio
 from supabase import AsyncClient

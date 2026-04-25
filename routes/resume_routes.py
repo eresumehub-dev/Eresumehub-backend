@@ -188,3 +188,43 @@ async def delete_resume(resume_id: str, user_id: str = Depends(get_current_user_
     """Soft delete a resume."""
     success = await supabase_service.delete_resume(resume_id)
     return {"success": success}
+
+@router.patch("/resumes/{resume_id}")
+async def update_resume(
+    resume_id: str,
+    data: UpdateResumeRequest,
+    user_id: str = Depends(get_current_user_id)
+):
+    """Partial update for a resume (v16.5.0 Hardened)."""
+    resume = await supabase_service.get_resume(resume_id)
+    if not resume or resume.get("user_id") != user_id:
+        raise HTTPException(status_code=404, detail="Resume not found")
+        
+    payload = data.model_dump(exclude_unset=True)
+    
+    # If updating resume_data, use the specialized service method
+    if "resume_data" in payload:
+        result = await resume_service.update_resume_content(
+            resume_id, 
+            payload["resume_data"], 
+            regenerate_pdf=payload.get("regenerate_pdf", True)
+        )
+        return {"success": True, "data": result}
+    
+    # Generic update for other fields
+    updated = await supabase_service.update_resume(resume_id, payload)
+    return {"success": True, "data": updated}
+
+@router.patch("/resumes/{resume_id}/default")
+async def set_default_resume_route(
+    resume_id: str,
+    user_id: str = Depends(get_current_user_id)
+):
+    """Set a resume as the user's default via Atomic RPC."""
+    # Ownership validation
+    resume = await supabase_service.get_resume(resume_id)
+    if not resume or resume.get("user_id") != user_id:
+        raise HTTPException(status_code=404, detail="Resume not found")
+        
+    success = await resume_service.set_default_resume(user_id, resume_id)
+    return {"success": success}
