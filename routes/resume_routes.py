@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, HTTPException, Depends, UploadFile, File, Form, status
+from fastapi import APIRouter, Request, HTTPException, Depends, UploadFile, File, Form, status, BackgroundTasks
 from typing import List, Optional, Dict, Any, Union
 import uuid
 import time
@@ -27,6 +27,7 @@ from fastapi.concurrency import run_in_threadpool
 async def create_new_resume(
     request: Request,
     data: CreateResumeRequest,
+    background_tasks: BackgroundTasks,
     user_id: str = Depends(get_current_user_id)
 ):
     """Create a new resume with AI content generation & Idempotent Deduplication (Auth UUID)."""
@@ -80,43 +81,41 @@ async def create_new_resume(
             if not data.user_data.nationality or not data.user_data.nationality.strip():
                 raise HTTPException(status_code=422, detail={"status": "requires_user_action", "message": f"Nationality is mandatory in {data.country}."})
 
-    # 4. Synchronous Execution
-    start_time = time.time()
+    # 4. Async Execution (v16.5.0): Serverless Background Workers
     try:
-        await request.app.state.redis.setex(debounce_key, 60, "1")
+        # Create Job record in Supabase
+        job = await supabase_service.create_job(user_id)
+        job_id = job["id"]
         
         job_data = data.model_dump()
         job_data["action"] = "create"
         
-        result = await ResumePipeline.run_for_user(
+        # Dispatch to FastAPI BackgroundTasks
+        background_tasks.add_task(
+            ResumePipeline.run_for_user,
             request_id=request_id,
             profile_service=ProfileService(supabase_service),
             ai_service=ai_service,
             supabase_service=supabase_service,
             analytics_service=request.app.state.analytics_service,
             user=user_ctx,
-            data=job_data
+            data=job_data,
+            job_id=job_id
         )
 
-        await request.app.state.redis.delete(debounce_key)
         return {
             "success": True, 
-            "data": result["data"],
-            "id": result["resume_id"],
-            "compliance_gap": result.get("compliance_gap", [])
+            "job_id": job_id,
+            "message": "Resume generation started in background"
         }
-    except PipelineError as e:
-        logger.warning(f"[{request_id}] Pipeline Error: {e.message}")
-        await request.app.state.redis.delete(debounce_key)
-        raise HTTPException(status_code=e.status_hint, detail=e.message)
     except Exception as e:
-        logger.exception(f"[{request_id}] Generation failed: {e}")
-        await request.app.state.redis.delete(debounce_key)
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"[{request_id}] Generation failed to start: {e}")
+        raise HTTPException(status_code=500, detail="Failed to start resume generation")
 
 @router.post("/resume/improve")
 async def improve_existing_resume(
     request: Request,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     country: str = Form("Germany"),
     job_description: str = Form(""),
@@ -127,12 +126,10 @@ async def improve_existing_resume(
     request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
     user_ctx = {"auth_user_id": user_id}
     
-    debounce_key = f"debounce:improve:{user_id}"
-    if await request.app.state.redis.get(debounce_key):
-        raise HTTPException(status_code=429, detail="Request already in progress.")
-
     try:
-        await request.app.state.redis.setex(debounce_key, 60, "1")
+        # Create Job record in Supabase
+        job = await supabase_service.create_job(user_id)
+        job_id = job["id"]
         
         # 1. Parse File
         ext = os.path.splitext(file.filename)[1].lower()
@@ -145,8 +142,9 @@ async def improve_existing_resume(
             
         text = result["text"]
         
-        # 🔑 Direct Pipeline Call (v16.4.9)
-        result = await ResumePipeline.run_for_user(
+        #  Dispatch to FastAPI BackgroundTasks
+        background_tasks.add_task(
+            ResumePipeline.run_for_user,
             request_id=request_id,
             profile_service=ProfileService(supabase_service),
             ai_service=ai_service,
@@ -158,22 +156,18 @@ async def improve_existing_resume(
                 "resume_text": text,
                 "country": country,
                 "job_description": job_description
-            }
+            },
+            job_id=job_id
         )
-        
-        await request.app.state.redis.delete(debounce_key)
+
         return {
             "success": True, 
-            "data": result["improved_text"],  # Canonical key for frontend
-            "id": result["resume_id"]
+            "job_id": job_id,
+            "message": "Resume improvement started in background"
         }
-    except HTTPException:
-        await request.app.state.redis.delete(debounce_key)
-        raise
     except Exception as e:
-        logger.error(f"Improvement failed: {e}")
-        await request.app.state.redis.delete(debounce_key)
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"[{request_id}] Failed to dispatch background task: {e}")
+        raise HTTPException(status_code=500, detail="Failed to start resume improvement")
 
 @router.get("/resumes", response_model=Dict[str, Any])
 async def list_user_resumes(request: Request, user_id: str = Depends(get_current_user_id)):

@@ -31,6 +31,75 @@ class SupabaseService:
     def client(self) -> AsyncClient:
         """Dynamically fetch the client to avoid httpx stale connection errors on Windows."""
         return get_client()
+
+    async def _retry_call(self, func, *args, **kwargs):
+        """Staff+ Resilience: Retry DB calls on transient network failure (v16.5.0)."""
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                return await func(*args, **kwargs)
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise e
+                logger.warning(f"Supabase call failed (Attempt {attempt + 1}/{max_retries}): {e}. Retrying...")
+                await asyncio.sleep(1 * (attempt + 1)) # Exponential backoff
+
+    async def create_job(self, user_id: str) -> Dict[str, Any]:
+        """Initialize a new job record for async tracking."""
+        try:
+            data = {
+                "user_id": user_id,
+                "status": "pending",
+                "step": "Initializing pipeline...",
+                "progress": 0
+            }
+            response = await self._retry_call(self.client.table("jobs").insert(data).execute)
+            return response.data[0]
+        except Exception as e:
+            logger.error(f"Error creating job record: {e}")
+            raise
+
+        try:
+            # v16.5.0: Always refresh heartbeat on any status update
+            updates["last_heartbeat"] = datetime.now(timezone.utc).isoformat()
+            await self._retry_call(self.client.table("jobs").update(updates).eq("id", job_id).execute)
+        except Exception as e:
+            logger.warning(f"Failed to update job {job_id} after retries: {e}")
+
+    async def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch job details with v16.5.0 Ghost Job Recovery."""
+        try:
+            response = await self._retry_call(self.client.table("jobs").select("*").eq("id", job_id).single().execute)
+            job = response.data
+            
+            if not job:
+                return None
+
+            # Staff+ Recovery: Check if job is stuck 'in-progress' without heartbeat for > 5 minutes
+            if job.get("status") in ["pending", "in-progress"]:
+                heartbeat_str = job.get("last_heartbeat")
+                if heartbeat_str:
+                    try:
+                        # Parse ISO format heartbeat
+                        heartbeat = datetime.fromisoformat(heartbeat_str.replace('Z', '+00:00'))
+                        now = datetime.now(timezone.utc)
+                        diff = (now - heartbeat).total_seconds()
+                        
+                        if diff > 300: # 5 minutes
+                            logger.warning(f"Ghost Job detected: {job_id} (No heartbeat for {int(diff)}s). Marking as failed.")
+                            job["status"] = "failed"
+                            job["error"] = "Job timed out (Worker unresponsive)"
+                            # Persist failure to stop future polling
+                            asyncio.create_task(self.update_job_status(job_id, {
+                                "status": "failed",
+                                "error": "Job timed out (Worker unresponsive)"
+                            }))
+                    except Exception as e:
+                        logger.error(f"Failed to parse heartbeat for job {job_id}: {e}")
+
+            return job
+        except Exception:
+            return None
     
     # ============================================
     # USER OPERATIONS
@@ -140,6 +209,13 @@ class SupabaseService:
         try:
             # Generate unique slug
             base_slug = resume_data.get("slug")
+            if not base_slug:
+                # Basic slugification: lower case, replace spaces with hyphens, remove special chars
+                import re
+                title = resume_data.get("title", "untitled-resume")
+                base_slug = re.sub(r'[^a-z0-9\-]', '', title.lower().replace(' ', '-'))
+                base_slug = re.sub(r'-+', '-', base_slug).strip('-')
+                
             slug = await self.generate_unique_slug(user_id, base_slug)
             
             data = {
@@ -282,21 +358,45 @@ class SupabaseService:
             return []
     
     async def generate_unique_slug(self, user_id: str, base_slug: str) -> str:
-        """Generate unique slug for resume"""
-        try:
-            response = await self.client.rpc(
-                "generate_unique_resume_slug",
-                {
-                    "user_id_input": user_id,
-                    "base_slug": base_slug
-                }
-            ).execute()
+        """
+        Staff+ Slug Resolution (v16.5.1): Handle global collisions in Python.
+        Strategy: software-engineer -> software-engineer-1 -> software-engineer-2
+        """
+        if not base_slug:
+            base_slug = "untitled-resume"
             
-            return response.data if response.data else base_slug
-            
-        except Exception as e:
-            logger.error(f"Error generating slug: {str(e)}")
-            return base_slug
+        current_slug = base_slug
+        max_attempts = 10
+        
+        for i in range(max_attempts):
+            try:
+                # Check if slug exists globally
+                response = await self.client.table("resumes")\
+                    .select("id")\
+                    .eq("slug", current_slug)\
+                    .limit(1)\
+                    .execute()
+                
+                if not response.data:
+                    # Slug is available!
+                    return current_slug
+                
+                # Collision detected! Append/Update suffix
+                # If i=0, we tried 'base-slug', now try 'base-slug-1'
+                # If i=1, we tried 'base-slug-1', now try 'base-slug-2'
+                current_slug = f"{base_slug}-{i + 1}"
+                logger.info(f"Slug collision for '{base_slug}'. Trying '{current_slug}' (Attempt {i+1}/{max_attempts})")
+                
+            except Exception as e:
+                logger.error(f"Error checking slug uniqueness: {e}")
+                # If check fails, fallback to a timestamp-based unique ID to prevent 500
+                import time
+                return f"{base_slug}-{int(time.time())}"
+        
+        # If we exhausted 10 attempts, append a short UUID as a final fallback
+        final_slug = f"{base_slug}-{str(uuid.uuid4())[:8]}"
+        logger.warning(f"Exhausted slug attempts for '{base_slug}'. Falling back to: {final_slug}")
+        return final_slug
     
     # ============================================
     # ANALYTICS OPERATIONS

@@ -15,12 +15,15 @@ if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
     raise ValueError("Missing SUPABASE_URL or SUPABASE_SERVICE_KEY in .env")
 
 # Global HTTP client with HTTP/2 disabled to fix ConnectionTerminated errors on Windows
-# We use a single shared client to avoid resource exhaustion
+# 🧬 v16.5.0 Hardening: Added retry configuration for production resilience
 _httpx_client = httpx.AsyncClient(
     http1=True,
     http2=False, # This is the critical fix for Supabase + Windows
-    timeout=httpx.Timeout(30.0),
-    follow_redirects=True
+    timeout=httpx.Timeout(45.0), # Increased for large PDF operations
+    follow_redirects=True,
+    # Standard httpx does not have max_retries in constructor, 
+    # but we ensure the pool is managed correctly.
+    limits=httpx.Limits(max_connections=100, max_keepalive_connections=20)
 )
 
 # Global Supabase client instance

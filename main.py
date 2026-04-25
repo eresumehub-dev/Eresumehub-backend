@@ -196,6 +196,7 @@ from routes.schema_router import router as schema_router
 from routes.analytics_router import router as analytics_router
 from routes.system_routes import router as system_router
 from routes.user_routes import router as user_router
+from routes.ai_routes import router as ai_router
 from utils.auth_deps import get_current_user_id
 
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["Auth"])
@@ -235,6 +236,7 @@ app.include_router(schema_router)
 app.include_router(analytics_router)
 app.include_router(system_router)
 app.include_router(user_router)
+app.include_router(ai_router)
 
 # -----------------------------
 # 7. Optimized Performance Endpoints

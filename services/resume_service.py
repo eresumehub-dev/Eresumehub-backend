@@ -350,17 +350,11 @@ class ResumeService:
             Success status
         """
         try:
-            # Unset all other defaults for this user
-            # Note: This is not atomic. If part 2 fails, user may have 0 defaults.
-            await self.client.table("resumes")\
-                .update({"is_default": False})\
-                .eq("user_id", user_id)\
-                .execute()
-            
-            # Set the new default
-            await supabase_service.update_resume(resume_id, {
-                "is_default": True
-            })
+            # 🧬 Atomic Toggle (v16.5.0): Move logic to Database RPC
+            # This prevents identity drift if the server crashes between updates.
+            await self.client.rpc("set_default_resume", {
+                "target_resume_id": resume_id
+            }).execute()
             
             # Cache Invalidation (v15.1.0 Deterministic)
             from services.profile_service import ProfileService
@@ -368,7 +362,7 @@ class ResumeService:
             ProfileService.invalidate_cache(user_id)
             AnalyticsService.invalidate_user_cache(user_id)
 
-            logger.info(f"Resume {resume_id} set as default for user {user_id}")
+            logger.info(f"Resume {resume_id} set as default for user {user_id} via RPC")
             return True
             
         except Exception as e:

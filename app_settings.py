@@ -31,6 +31,7 @@ class Config:
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development") # 'production' or 'development'
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
     SUPABASE_KEY: str = os.getenv("SUPABASE_SERVICE_KEY", "")
+    SUPABASE_MAX_RETRIES: int = int(os.getenv("SUPABASE_MAX_RETRIES", 3))
     # Deep Discovery Chain (v3.22.0)
     @classmethod
     def _discover_redis_url(cls) -> str:

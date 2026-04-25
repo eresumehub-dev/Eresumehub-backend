@@ -44,33 +44,34 @@ class ResumePipeline:
         ai_service: Any,
         supabase_service: Any,
         analytics_service: Any,
-        rq_job: Any = None
+        job_id: Optional[str] = None
     ):
         self.request_id = request_id
         self.profile_service = profile_service
         self.ai_service = ai_service
         self.supabase_service = supabase_service
         self.analytics_service = analytics_service
-        self.rq_job = rq_job
+        self.job_id = job_id
         self.logger = logger
         self.compliance_gap = []  # Persistent gap for the current run (v16.4.18)
 
     async def _update_status(self, step: str, progress: int):
-        """Update the progress of the current job if available."""
-        if self.rq_job:
+        """Update the progress of the current job in Supabase."""
+        if self.job_id:
             try:
-                self.rq_job.meta['step'] = step
-                self.rq_job.meta['progress'] = progress
-                # Staff+ Safety: Offload synchronous Redis call
-                await run_in_threadpool(self.rq_job.save_meta)
+                await self.supabase_service.update_job_status(self.job_id, {
+                    "step": step,
+                    "progress": progress,
+                    "status": "in-progress" if progress < 100 else "completed"
+                })
                 logger.info(f"[{self.request_id}] Progress: {step} ({progress}%)")
             except Exception as e:
-                logger.warning(f"[{self.request_id}] Failed to update job meta: {e}")
+                logger.warning(f"[{self.request_id}] Failed to update job status: {e}")
 
     @classmethod
-    async def run_for_user(cls, request_id: str, profile_service: ProfileService, ai_service: Any, supabase_service: Any, analytics_service: Any, user: Dict[str, Any], data: Dict[str, Any], rq_job: Any = None):
+    async def run_for_user(cls, request_id: str, profile_service: ProfileService, ai_service: Any, supabase_service: Any, analytics_service: Any, user: Dict[str, Any], data: Dict[str, Any], job_id: Optional[str] = None):
         """Staff+ Entry Point with Total Fault-Tolerance."""
-        instance = cls(request_id, profile_service, ai_service, supabase_service, analytics_service, rq_job)
+        instance = cls(request_id, profile_service, ai_service, supabase_service, analytics_service, job_id)
         try:
             action = data.get("action", "create")
             if action == "create":
@@ -83,7 +84,19 @@ class ResumePipeline:
                 raise PipelineError(code="INVALID_ACTION", message=f"Pipeline does not support action: {action}")
         except Exception as e:
             logger.error(f"[{request_id}] PIPELINE FATAL ERROR: {str(e)}")
-            # Ensure we record failure in audit even on hard crash
+            
+            # 🛑 1. Mark Job as Failed (v16.5.0)
+            if job_id:
+                try:
+                    await instance.supabase_service.update_job_status(job_id, {
+                        "status": "failed",
+                        "error": str(e),
+                        "step": "Fatal error in pipeline"
+                    })
+                except:
+                    pass
+
+            # 2. Audit Log
             try:
                 await instance.supabase_service.create_audit_log(
                     user_id=user.get("auth_user_id"),
@@ -101,6 +114,13 @@ class ResumePipeline:
 
     async def _step_prepare_data(self, user: Dict[str, Any], data: Dict[str, Any]):
         await self._update_status("Fetching Profile Data", 10)
+        
+        # 🛡️ 1. Security Check (v16.5.0): Prompt Injection Guard
+        # Check Job Title and Description for malicious content
+        text_to_check = f"{data.get('job_title', '')} {data.get('job_description', '')}"
+        if await self.ai_service.check_for_injection(text_to_check, self.request_id):
+            raise PipelineError(code="SECURITY_VIOLATION", message="Malicious content detected in input data. Generation halted for safety.")
+
         auth_user_id = user["auth_user_id"]
         
         db_profile = await self.profile_service.get_profile(auth_user_id)
@@ -448,12 +468,26 @@ class ResumePipeline:
                                                         entity_type="resume", entity_id=resume_id, 
                                                         new_data={"request_id": self.request_id, "score": enriched_data["score"]})
             
-            return {
+            result = {
                 "success": True, 
                 "resume_id": resume_id, 
                 "data": final_resume,
                 "compliance_gap": getattr(self, "compliance_gap", [])
             }
+
+            # 🛑 3. Finalize Job (v16.5.0)
+            if self.job_id:
+                try:
+                    await self.supabase_service.update_job_status(self.job_id, {
+                        "status": "completed",
+                        "progress": 100,
+                        "step": "Generation complete!",
+                        "result": result
+                    })
+                except:
+                    pass
+
+            return result
             
         except Exception as e:
             await self._record_metrics("failed")
@@ -462,19 +496,9 @@ class ResumePipeline:
             raise
 
     async def _record_metrics(self, status: str, duration: float = 0):
-        """Staff+ Performance Monitoring Layer."""
-        if self.rq_job and hasattr(self.rq_job, "connection"):
-            try:
-                pipe = self.rq_job.connection.pipeline()
-                pipe.incr("metrics:jobs:total")
-                pipe.incr(f"metrics:jobs:{status}")
-                if status == "success" and duration > 0:
-                    # Rolling average store (lpush + ltrim for last 100)
-                    pipe.lpush("metrics:jobs:latency", duration)
-                    pipe.ltrim("metrics:jobs:latency", 0, 99)
-                await run_in_threadpool(pipe.execute)
-            except Exception as e:
-                logger.warning(f"Metrics record failed: {e}")
+        """Metrics recording (Redis-free version)."""
+        # Placeholder for DB-based metrics if needed in future
+        pass
     async def _run_improve_flow(self, user: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Flow for improving an existing resume text with progress tracking.
@@ -529,13 +553,27 @@ class ResumePipeline:
         resume = await self.supabase_service.create_resume(auth_user_id, improve_payload)
 
         # 2. Return result
-        return {
+        result = {
             "success": True,
             "resume_id": resume["id"],
             "improved_text": improved_text,
             "original_text": text[:500],
             "country": country
         }
+
+        # 🛑 Finalize Job (v16.5.0)
+        if self.job_id:
+            try:
+                await self.supabase_service.update_job_status(self.job_id, {
+                    "status": "completed",
+                    "progress": 100,
+                    "step": "Improvement complete!",
+                    "result": result
+                })
+            except:
+                pass
+
+        return result
 
     async def _run_enhance_flow(self, user: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -598,5 +636,19 @@ class ResumePipeline:
         
         updated = await self.supabase_service.update_resume(resume_id, update_payload)
         
-        return {"success": True, "data": updated}
+        result = {"success": True, "data": updated}
+
+        # 🛑 Finalize Job (v16.5.0)
+        if self.job_id:
+            try:
+                await self.supabase_service.update_job_status(self.job_id, {
+                    "status": "completed",
+                    "progress": 100,
+                    "step": "Enhancement complete!",
+                    "result": result
+                })
+            except:
+                pass
+
+        return result
 
