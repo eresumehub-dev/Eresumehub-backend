@@ -84,12 +84,32 @@ async def lifespan(app: FastAPI):
         # Async Handle (For routes, idempotency, debounce)
         redis_async = aioredis.from_url(raw_url, decode_responses=False)
         app.state.redis = redis_async
+        await redis_async.ping() # Force connection
         logger.info(f"Redis Connection Seq: {time.perf_counter() - redis_start:.4f}s")
     except Exception as e:
         logger.critical(f"FATAL: Redis connection failed: {e}")
         app.state.redis = None
         if Config.ENVIRONMENT == "production":
             raise RuntimeError(f"CRITICAL INFRASTRUCTURE FAILURE: Redis is REQUIRED in production environment. {e}")
+
+    # 6. Infrastructure Warmup (v16.5.7: Anti-Cold Start)
+    warmup_start = time.perf_counter()
+    try:
+        # A. Warmup Supabase (Audit A3 Lazy Init -> Early Init)
+        from utils.supabase_client import get_client
+        supabase_client = get_client()
+        # Ping Supabase with a lightweight query
+        await supabase_client.table("users").select("id").limit(1).execute()
+        logger.info(f"Warmup: Supabase connection established.")
+        
+        # B. Warmup RAG (Pre-load default schema)
+        from services.rag_service import RAGService
+        RAGService.load_knowledge_base("United States")
+        logger.info(f"Warmup: RAG default schema pre-loaded.")
+        
+        logger.info(f"Infrastructure Warmup Complete: {time.perf_counter() - warmup_start:.4f}s")
+    except Exception as e:
+        logger.warning(f"Infrastructure Warmup Partially Failed: {e}")
 
     logger.info(f"🚀 Total Startup Latency: {(time.perf_counter() - boot_start)*1000:.2f}ms (Target: <500ms)")
     yield
