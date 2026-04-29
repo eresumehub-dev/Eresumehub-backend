@@ -38,7 +38,7 @@ async def migrate_identity(client, old_auth_id: str, new_auth_id: str, user_emai
 async def get_current_user_from_token(
     request: Request,
     authorization: Optional[str] = Header(None),
-    background_tasks: BackgroundTasks = None
+    background_tasks: BackgroundTasks
 ) -> Dict[str, Any]:
     actual_token = None
     if authorization and authorization.startswith("Bearer "):
@@ -179,7 +179,7 @@ async def get_current_user_from_token(
 async def get_current_user_id(
     request: Request,
     authorization: Optional[str] = Header(None),
-    background_tasks: BackgroundTasks = None
+    background_tasks: BackgroundTasks
 ) -> str:
     """Get the current authenticated user's canonical auth_user_id (v16.0.0)"""
     user = await get_current_user_from_token(request, authorization, background_tasks)
@@ -188,7 +188,7 @@ async def get_current_user_id(
 async def get_current_user_ids(
     request: Request,
     authorization: Optional[str] = Header(None),
-    background_tasks: BackgroundTasks = None
+    background_tasks: BackgroundTasks
 ) -> Dict[str, Any]:
     """Get the current authenticated user with both IDs"""
     return await get_current_user_from_token(request, authorization, background_tasks)
@@ -196,7 +196,7 @@ async def get_current_user_ids(
 async def get_optional_user_id(
     request: Request,
     authorization: Optional[str] = Header(None),
-    background_tasks: BackgroundTasks = None
+    background_tasks: BackgroundTasks
 ) -> Optional[str]:
     """Get the current authenticated user's canonical ID (v16.0.0) if present and valid, otherwise None"""
     try:
