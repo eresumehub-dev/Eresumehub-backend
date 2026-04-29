@@ -2,10 +2,13 @@
 
 import os
 import httpx
+import logging
 from typing import Optional
 from supabase import create_client, Client, AsyncClient
 from supabase.lib.client_options import AsyncClientOptions as ClientOptions
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 load_dotenv(override=True)
 
@@ -64,5 +67,8 @@ async def verify_connection():
 
 async def close_client():
     """Call this on shutdown to close the httpx pool"""
-    await _httpx_client.aclose()
+    global _httpx_client
+    if _httpx_client:
+        await _httpx_client.aclose()
+        logger.info("Supabase Client: HTTPX pool closed.")
 
