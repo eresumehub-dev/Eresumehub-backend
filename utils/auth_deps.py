@@ -3,7 +3,7 @@ import uuid
 import asyncio
 import logging
 from typing import Optional, Dict, Any, List
-from fastapi import Header, Query, HTTPException, Request
+from fastapi import Header, Query, HTTPException, Request, BackgroundTasks
 from datetime import datetime
 from services.supabase_service import supabase_service
 
