@@ -57,7 +57,8 @@ async def submit_contact_form(request: Request, background_tasks: BackgroundTask
         
         # Wire to real email delivery in background
         from utils.email_service import email_service
-        background_tasks.add_task(email_service.send_contact_email, name, email, topic, message)
+        from utils.background_utils import safe_background_task
+        background_tasks.add_task(safe_background_task, email_service.send_contact_email, name, email, topic, message)
         
         return {
             "success": True, 

@@ -106,7 +106,10 @@ class ResumePipeline:
                 )
             except:
                 pass
-            raise
+            # 🧬 v16.5.3: Removing re-raise for BackgroundTasks
+            # Background tasks must never bubble up exceptions to Starlette/FastAPI
+            # as they can crash the worker or result in 502 Bad Gateway.
+            return {"success": False, "error": str(e)}
 
     # -----------------------------
     # 1. Atomic Pipeline Steps (Elite Isolation)

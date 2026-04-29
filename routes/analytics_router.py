@@ -3,6 +3,7 @@ from services.supabase_service import supabase_service
 from services.analytics_service import AnalyticsService
 from models.event_schema import StandardEvent
 from typing import Dict, Any, Optional, List
+from utils.background_utils import safe_background_task
 import logging
 
 import logging
@@ -33,7 +34,7 @@ async def track_event(request: Request, background_tasks: BackgroundTasks, event
         event_dict = event.model_dump(mode='json')
         
         # Background track (v16.5.2)
-        background_tasks.add_task(supabase_service.client.table("events_raw").insert(event_dict).execute)
+        background_tasks.add_task(safe_background_task, supabase_service.client.table("events_raw").insert(event_dict).execute)
         
         return {"success": True, "event_id": event.event_id}
             
@@ -70,7 +71,7 @@ async def log_view(request: Request, background_tasks: BackgroundTasks, view_dat
         result = await supabase_service.log_resume_view(resume_id, view_data)
         
         # Background track (v16.5.2)
-        background_tasks.add_task(supabase_service.client.table("events_raw").insert(event.model_dump(mode='json')).execute)
+        background_tasks.add_task(safe_background_task, supabase_service.client.table("events_raw").insert(event.model_dump(mode='json')).execute)
         
         if isinstance(result, str):
             return {"success": True, "view_id": result}
@@ -120,7 +121,7 @@ async def log_download(request: Request, background_tasks: BackgroundTasks, down
             properties={"resume_id": resume_id, "file_format": "pdf"}
         )
         # Background track (v16.5.2)
-        background_tasks.add_task(supabase_service.client.table("events_raw").insert(event.model_dump(mode='json')).execute)
+        background_tasks.add_task(safe_background_task, supabase_service.client.table("events_raw").insert(event.model_dump(mode='json')).execute)
 
         result = await supabase_service.log_resume_download(resume_id, download_data)
         return {"success": result}

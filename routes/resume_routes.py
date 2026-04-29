@@ -109,7 +109,9 @@ async def create_new_resume(
         job_data["action"] = "create"
         
         # Dispatch to FastAPI BackgroundTasks
+        from utils.background_utils import safe_background_task
         background_tasks.add_task(
+            safe_background_task,
             ResumePipeline.run_for_user,
             request_id=request_id,
             profile_service=ProfileService(supabase_service),
@@ -161,7 +163,9 @@ async def improve_existing_resume(
         text = result["text"]
         
         #  Dispatch to FastAPI BackgroundTasks
+        from utils.background_utils import safe_background_task
         background_tasks.add_task(
+            safe_background_task,
             ResumePipeline.run_for_user,
             request_id=request_id,
             profile_service=ProfileService(supabase_service),
