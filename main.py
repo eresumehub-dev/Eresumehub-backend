@@ -224,7 +224,7 @@ async def get_current_user_identity_proxy(request: Request, background_tasks: Ba
         return JSONResponse(status_code=401, content={"success": False, "error": "Missing Authorization header"})
         
     try:
-        user = await get_current_user_from_token(request, auth_header, background_tasks)
+        user = await get_current_user_from_token(request, background_tasks, auth_header)
         return {
             "success": True,
             "data": user
