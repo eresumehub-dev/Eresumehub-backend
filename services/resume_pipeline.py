@@ -93,7 +93,7 @@ class ResumePipeline:
                         "error": str(e),
                         "step": "Fatal error in pipeline"
                     })
-                except:
+                except Exception:
                     pass
 
             # 2. Audit Log
@@ -431,7 +431,10 @@ class ResumePipeline:
             return resume_id, final_resume
         except Exception as e:
             if resume_id:
-                await self.supabase_service.delete_resume(resume_id)
+                try:
+                    await self.supabase_service.delete_resume(resume_id)
+                except Exception as cleanup_error:
+                    logger.warning(f"[{self.request_id}] Cleanup deletion failed: {cleanup_error}")
             logger.error(f"[{self.request_id}] Storage failure: {e}")
             raise StorageError(code="STORAGE_FAIL", message="Resume could not be saved.")
 
@@ -484,7 +487,7 @@ class ResumePipeline:
                         "step": "Generation complete!",
                         "result": result
                     })
-                except:
+                except Exception:
                     pass
 
             return result

@@ -24,8 +24,8 @@ class TimelineValidator:
     @staticmethod
     def parse_date(date_str: str) -> Optional[datetime]:
         """Parses MM/YYYY or Month Year formats."""
-        if not date_str or date_str.lower() == 'present':
-            return datetime.now()
+        if not date_str or date_str.lower() in ('present', 'current', 'now'):
+            return None  # Treat as ongoing
         
         # Strategies
         formats = [
@@ -75,7 +75,7 @@ class TimelineValidator:
         masters = [e for e in parsed_edus if e['level'] == 3]
 
         for pre in pre_unis:
-            if not pre['end']: continue
+            if not pre['end']: continue # Ongoing pre-uni? Skip overlap
             for bach in bachelors:
                 if not bach['start']: continue
                 if pre['end'] > bach['start']:
@@ -85,7 +85,7 @@ class TimelineValidator:
         
         # Check 2: Bachelors vs Masters
         for bach in bachelors:
-            if not bach['end']: continue
+            if not bach['end']: continue # Ongoing bachelor? Skip overlap
             for mast in masters:
                 if not mast['start']: continue
                  # Allow 0 tolerance? Usually Masters starts after Bachelors graduation.

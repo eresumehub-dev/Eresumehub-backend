@@ -50,12 +50,16 @@ class ResumeAutocorrect:
             if data.get(key):
                 original = data[key]
                 # Replace "I am a..." or "I led..." with nominal phrases or just remove "I "
-                # Simple replacement for start of sentences
-                fixed = original.replace("I am ", "Experienced ").replace("I have ", "Extensive experience in ")
-                fixed = fixed.replace("I ", "").replace("My ", "").replace("my ", "")
-                # More robust regex replacement
+                # 🧬 Nominal Substitution (v16.5.0)
+                fixed = re.sub(r'\bI am\b', 'Experienced professional', original, flags=re.IGNORECASE)
+                fixed = re.sub(r'\bI have\b', 'With experience in', fixed, flags=re.IGNORECASE)
+                fixed = re.sub(r'\bI\b', '', fixed, flags=re.IGNORECASE)
+                
+                # Strip remaining pronouns from regex list
                 fixed = PRONOUNS_REGEX.sub("", fixed)
-                data[key] = fixed.strip()
+                # Clean up double spaces and trim
+                fixed = re.sub(r' +', ' ', fixed).strip()
+                data[key] = fixed
 
         # 3. Ensure Date Formatting (YYYY.MM.DD)
         # This is mostly handled by the AI, but we can enforce it here if needed.

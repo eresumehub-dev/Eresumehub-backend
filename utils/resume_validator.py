@@ -16,14 +16,6 @@ class ResumeComplianceValidator:
     """
     
     @staticmethod
-    def _log_debug(message: str):
-        try:
-            with open("validation_trace.log", "a", encoding="utf-8") as f:
-                f.write(f"{message}\n")
-        except:
-            pass
-
-    @staticmethod
     def _load_rules(country: str) -> Dict[str, Any]:
         """
         Load knowledge base for the specified country.
@@ -47,21 +39,21 @@ class ResumeComplianceValidator:
 
         if actual_dir:
             country_dir = os.path.join(base_dir, actual_dir)
-            ResumeComplianceValidator._log_debug(f"[Validator] Loading rules for country: {country} (Mapped: {actual_dir}) from {country_dir}")
+            logger.debug(f"[Validator] Loading rules for country: {country} (Mapped: {actual_dir}) from {country_dir}")
             kb_path = os.path.join(country_dir, "knowledge_base.json")
             if os.path.exists(kb_path):
                 try:
                     with open(kb_path, 'r', encoding='utf-8') as f:
                         rules = json.load(f)
-                        ResumeComplianceValidator._log_debug(f"[Validator] Rules loaded successfully. Keys: {list(rules.keys())}")
+                        logger.debug(f"[Validator] Rules loaded successfully. Keys: {list(rules.keys())}")
                         return rules
                 except Exception as e:
-                    ResumeComplianceValidator._log_debug(f"Error loading rules for {country}: {e}")
+                    logger.debug(f"Error loading rules for {country}: {e}")
                     return {}
             else:
-                 ResumeComplianceValidator._log_debug(f"[Validator] knowledge_base.json not found in {country_dir}")
+                 logger.debug(f"[Validator] knowledge_base.json not found in {country_dir}")
         else:
-             ResumeComplianceValidator._log_debug(f"[Validator] Directory not found: {country_dir}")
+             logger.debug(f"[Validator] Directory not found for country: {country}")
         
         # 2. Add mappings if needed (e.g. "United States" -> "USA") - For now, fallback to empty
         return {}
@@ -72,17 +64,17 @@ class ResumeComplianceValidator:
         Validate user_data against dynamic RAG rules for the country.
         Returns: { "valid": bool, "errors": [ { "field": str, "message": str, "code": str } ] }
         """
-        ResumeComplianceValidator._log_debug(f"[Validator] Validating for {country}. User Data Keys: {list(user_data.keys())}")
+        logger.debug(f"[Validator] Validating for {country}. User Data Keys: {list(user_data.keys())}")
         rules = ResumeComplianceValidator._load_rules(country)
         
         # If no rules found (e.g. USA), we assume valid (allow generation)
         if not rules:
-            ResumeComplianceValidator._log_debug(f"[Validator] No rules found for {country}. Passing.")
+            logger.debug(f"[Validator] No rules found for {country}. Passing.")
             return {"valid": True, "errors": []}
 
         errors = []
         required_langs = rules.get("required_languages", [])
-        ResumeComplianceValidator._log_debug(f"[Validator] Required Languages: {required_langs}")
+        logger.debug(f"[Validator] Required Languages: {required_langs}")
         
         # Navigate to mandatory sections: cv_structure -> mandatory_sections
         mandatory_structure = rules.get("cv_structure", {}).get("mandatory_sections", {})
@@ -160,7 +152,7 @@ class ResumeComplianceValidator:
         # --- 2. Language Validation (Dynamic) ---
         if required_langs:
             languages = user_data.get("languages", [])
-            ResumeComplianceValidator._log_debug(f"[Validator] User Languages: {languages}")
+            logger.debug(f"[Validator] User Languages: {languages}")
             present_languages = set()
             
             for lang_item in languages:
@@ -171,7 +163,7 @@ class ResumeComplianceValidator:
                     name = lang_item.get("name") or lang_item.get("language", "")
                 present_languages.add(name.lower())
             
-            ResumeComplianceValidator._log_debug(f"[Validator] Normalized Present Languages: {present_languages}")
+            logger.debug(f"[Validator] Normalized Present Languages: {present_languages}")
             
             # Pull contextual info from RAG for richer error messages
             job_market = rules.get("job_market_info", {})
@@ -187,7 +179,7 @@ class ResumeComplianceValidator:
                         break
                 
                 if not found:
-                    ResumeComplianceValidator._log_debug(f"[Validator] Missing required language: {required}")
+                    logger.debug(f"[Validator] Missing required language: {required}")
                     
                     # Build a rich, contextual error message
                     msg = f"{required} language proficiency is required for {country} resumes."
@@ -209,8 +201,7 @@ class ResumeComplianceValidator:
         # --- 4. EXPLICIT JAPANESE COMPLIANCE ---
         if country.lower() == "japan":
             # 2. Check for Mandatory Sections (Self-PR, Motivation, Certifications)
-            # Use rules from RAGRuleLoader via its instance or direct check if needed
-            # For now, we enforce these directly as per the User's Upgrade Plan
+            # These are currently tracked as mandatory in Japan KB but let's ensure specific field checks
             if not user_data.get("self_pr") and not user_data.get("professional_summary"):
                  errors.append({"field": "self_pr", "message": "Missing 'Self-PR (自己PR)' section. This is required for Japan resumes.", "code": "MISSING_SELF_PR"})
             
@@ -221,6 +212,7 @@ class ResumeComplianceValidator:
                  errors.append({"field": "certifications", "message": "Qualifications & Licenses section is missing. Add certifications/licenses.", "code": "MISSING_QUALIFICATIONS"})
             
             # 3. Check Language level format (Reject CEFR A1-C2 for Japanese specifically)
+            # This logic stays as it's a specific format rule not yet in KB JSON
             langs = user_data.get("languages", [])
             has_japanese_cefr = False
             
@@ -243,12 +235,10 @@ class ResumeComplianceValidator:
             if has_japanese_cefr:
                  errors.append({"field": "languages", "message": "For Japanese language, use JLPT (e.g., N1, N2) levels rather than CEFR (A1-C2) for Japan resumes.", "code": "NON_STANDARD_JAPANESE_LEVEL"})
 
-            # 4. Check for First-Person Pronouns in Summary/Self-PR/Motivation
-            # (Self-PR/Professional Summary usually share the same content in our pipeline)
+            # 4. Check for First-Person Pronouns
             for text_field in ["professional_summary", "self_pr", "motivation"]:
                 val = user_data.get(text_field, "")
                 if val and isinstance(val, str):
-                    # Simple check for "I ", " me ", " my "
                     if re.search(r"\b(I|me|my)\b", val, re.IGNORECASE):
                         errors.append({
                             "field": text_field, 
@@ -256,7 +246,7 @@ class ResumeComplianceValidator:
                             "code": "PRONOUNS_DETECTED"
                         })
 
-        ResumeComplianceValidator._log_debug(f"[Validator] Validation Result: {len(errors) == 0}, Errors: {errors}")
+        logger.debug(f"[Validator] Validation Result: {len(errors) == 0}, Errors: {errors}")
         return {
             "valid": len(errors) == 0,
             "errors": errors

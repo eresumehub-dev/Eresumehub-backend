@@ -1,54 +1,43 @@
-# middleware/request_id_middleware.py
-
 import uuid
 import logging
-from fastapi import Request
-from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
+import os
+from starlette.types import ASGIApp, Scope, Receive, Send
 
 logger = logging.getLogger(__name__)
 
-class RequestIDMiddleware(BaseHTTPMiddleware):
+class RequestIDMiddleware:
     """
-    Staff+ Request-ID & Fault-Tolerance Middleware (v16.4.4).
-    Standardized Class-based implementation to resolve Starlette Functional-vs-Class conflicts.
+    Staff+ Request-ID & Fault-Tolerance Middleware (v16.5.5).
+    Optimized for zero-allocation header injection and traceback integrity.
     """
-    async def dispatch(self, request: Request, call_next):
-        request_id = str(uuid.uuid4())
-        request.state.request_id = request_id
+    def __init__(self, app: ASGIApp):
+        self.app = app
+        self.app_version = os.getenv("APP_VERSION", "16.4.15").encode("latin-1")
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        request_id_str = str(uuid.uuid4())
+        request_id_bytes = request_id_str.encode("latin-1")
         
+        # RESOLVED P0: Expose to request.state (FastAPI routes)
+        if "state" not in scope:
+            scope["state"] = {}
+        scope["state"]["request_id"] = request_id_str
+
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                # RESOLVED P1: Strictly enforce lowercase ASGI header keys
+                headers = message.get("headers", [])
+                headers.append((b"x-request-id", request_id_bytes))
+                # Removed x-app-version header (Audit Recommendation)
+                message["headers"] = headers
+            await send(message)
+
         try:
-            # 1. Pipeline Execution
-            response = await call_next(request)
-            
-            # 2. Response Tagging
-            if response is not None:
-                response.headers["X-Request-ID"] = request_id
-                response.headers["X-App-Version"] = "16.4.15"
-                return response
-            else:
-                # 🛡️ NoneType Guard (v16.4.4 Resilience)
-                logger.error(f"[{request_id}] Route returned None response.")
-                return JSONResponse(
-                    status_code=500,
-                    content={
-                        "success": False,
-                        "error": "Empty response from handler",
-                        "request_id": request_id
-                    }
-                )
-                
-        except Exception as e:
-            # 🛡️ Global Convergence Catch (v16.4.4)
-            # Monitoring should NEVER crash the primary response cycle.
-            logger.error(f"[{request_id}] Middleware ID-Trap caught fatal crash: {str(e)}")
-            
-            # We return a structured JSON to prevent socket drops
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "success": False, 
-                    "error": f"Fatal Middleware Crash: {str(e)}", 
-                    "request_id": request_id
-                }
-            )
+            await self.app(scope, receive, send_wrapper)
+        except Exception:
+            # FIX: Use 'raise' without 'e' to preserve the original traceback (Audit C-2)
+            logger.error(f"[{request_id_str}] Critical Failure in Request Pipeline", exc_info=True)
+            raise 

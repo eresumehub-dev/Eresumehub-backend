@@ -66,7 +66,8 @@ async def create_new_resume(
         try:
             with open(schema_path, 'r', encoding='utf-8') as f:
                 schema = json.load(f)
-        except: pass
+        except Exception as schema_err:
+            logger.warning(f"[{request_id}] Failed to load compliance schema for {data.country}: {schema_err}")
         
     if schema and not data.ignore_compliance:
         cv_structure = schema.get("cv_structure", {})
@@ -153,7 +154,7 @@ async def improve_existing_resume(
         if ext == '.pdf':
             result = await FileProcessor.parse_pdf(file)
         elif ext == '.docx':
-            result = FileProcessor.parse_docx(file)
+            result = await FileProcessor.parse_docx(file)
         else:
             raise HTTPException(status_code=400, detail="Unsupported file type")
             
@@ -201,10 +202,14 @@ async def get_resume_detail(resume_id: str, user_id: str = Depends(get_current_u
     return {"success": True, "data": resume}
 
 @router.delete("/resume/{resume_id}")
-async def delete_resume(resume_id: str, user_id: str = Depends(get_current_user_id)):
+async def delete_resume_route(resume_id: str, user_id: str = Depends(get_current_user_id)):
     """Soft delete a resume."""
-    success = await supabase_service.delete_resume(resume_id)
-    return {"success": success}
+    try:
+        success = await resume_service.delete_resume(resume_id)
+        return {"success": success}
+    except Exception as e:
+        logger.error(f"Route Delete Failure: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.patch("/resumes/{resume_id}")
 async def update_resume(

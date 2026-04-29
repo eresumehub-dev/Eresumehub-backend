@@ -19,7 +19,7 @@ class AIEnhancementService:
             self.model = None
         else:
             genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel('gemini-pro')
+            self.model = genai.GenerativeModel('gemini-1.5-flash')
     
     async def enhance_profile(self, profile_data: Dict[str, Any]) -> Dict[str, Any]:
         """

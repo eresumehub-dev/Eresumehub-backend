@@ -22,4 +22,4 @@ def html_to_pdf(html_content: str) -> bytes:
     except Exception as e:
         logger.error(f"PDF Generation ERROR (WeasyPrint): {str(e)}")
         logger.error(traceback.format_exc())
-        raise e
+        raise RuntimeError("PDF generation failed. Please try again.")

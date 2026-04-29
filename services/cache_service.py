@@ -29,11 +29,11 @@ class CacheService:
             logger.error(f"CacheService: Redis Connection Failed: {e}")
             self.redis = None
 
-    def flush_all(self):
+    async def flush_all(self):
         """System-Wide Purge: Clears all Redis keys including those from legacy prefixes (v16.0.0)"""
         if not self.redis: return
         try:
-            self.redis.flushall()
+            await self.redis.flushall()
             logger.info("CACHE_PURGE: System-wide Redis flush executed.")
         except Exception as e:
             logger.error(f"Cache Flush Error: {e}")

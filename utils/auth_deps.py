@@ -9,19 +9,43 @@ from services.supabase_service import supabase_service
 
 logger = logging.getLogger(__name__)
 
+async def migrate_identity(client, old_auth_id: str, new_auth_id: str, user_email: str):
+    """
+    Background task to migrate all user-related data when an auth ID changes (v16.5.0).
+    """
+    logger.info(f"CASCADING IDENTITY MIGRATION START: {old_auth_id} -> {new_auth_id}")
+    try:
+        # Use asyncio.gather for parallel database updates
+        migration_tasks = [
+            client.table("user_profiles").update({"user_id": new_auth_id}).eq("user_id", old_auth_id).execute(),
+            client.table("resumes").update({"user_id": new_auth_id}).eq("user_id", old_auth_id).execute(),
+            client.table("user_analytics_cache").update({"user_id": new_auth_id}).eq("user_id", old_auth_id).execute(),
+            client.table("resume_views").update({"viewer_user_id": new_auth_id}).eq("viewer_user_id", old_auth_id).execute(),
+            client.table("resume_likes").update({"user_id": new_auth_id}).eq("user_id", old_auth_id).execute()
+        ]
+        
+        results = await asyncio.gather(*migration_tasks, return_exceptions=True)
+        
+        # Explicitly check for exceptions in the results (v16.5.1 Hardening)
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.error(f"CASCADE FAIL: Migration task {i} failed for {user_email}: {result}")
+        
+        logger.info(f"Identity migration complete for {user_email}")
+    except Exception as migration_error:
+        logger.error(f"CASCADE CRITICAL FAIL: Unexpected error during migration for {user_email}: {migration_error}")
+
 async def get_current_user_from_token(
     request: Request,
     authorization: Optional[str] = Header(None),
-    token: Optional[str] = Query(None)
+    background_tasks: Optional[BackgroundTasks] = None
 ) -> Dict[str, Any]:
     actual_token = None
     if authorization and authorization.startswith("Bearer "):
         actual_token = authorization.split(" ", 1)[1].strip()
-    elif token:
-        actual_token = token
         
     if not actual_token:
-        raise HTTPException(status_code=401, detail="Missing Authorization header or token")
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
 
     client = supabase_service.client
 
@@ -70,22 +94,13 @@ async def get_current_user_from_token(
                     # 1. Update primary user record
                     update_resp = await client.table("users").update({"auth_user_id": auth_user_id}).eq("id", existing_user["id"]).execute()
                     
-                    # 2. CASCADE: Migrate all dependent data if the ID actually changed
+                    # 2. CASCADE: Migrate all dependent data if the ID actually changed (v16.5.0 Backgrounded)
                     if old_auth_id and old_auth_id != auth_user_id:
-                        logger.info(f"CASCADING IDENTITY MIGRATION: {old_auth_id} -> {auth_user_id}")
-                        try:
-                            # Use asyncio.gather for parallel database updates
-                            migration_tasks = [
-                                client.table("user_profiles").update({"user_id": auth_user_id}).eq("user_id", old_auth_id).execute(),
-                                client.table("resumes").update({"user_id": auth_user_id}).eq("user_id", old_auth_id).execute(),
-                                client.table("user_analytics_cache").update({"user_id": auth_user_id}).eq("user_id", old_auth_id).execute(),
-                                client.table("resume_views").update({"viewer_user_id": auth_user_id}).eq("viewer_user_id", old_auth_id).execute(),
-                                client.table("resume_likes").update({"user_id": auth_user_id}).eq("user_id", old_auth_id).execute()
-                            ]
-                            await asyncio.gather(*migration_tasks, return_exceptions=True)
-                            logger.info(f"Identity migration complete for {user_email}")
-                        except Exception as migration_error:
-                            logger.error(f"CASCADE FAIL: One or more tables failed to migrate for {user_email}: {migration_error}")
+                        if background_tasks:
+                            background_tasks.add_task(migrate_identity, client, old_auth_id, auth_user_id, user_email)
+                        else:
+                            # Fallback to sync-wait if no background tasks provided (e.g. CLI or simple script)
+                            await migrate_identity(client, old_auth_id, auth_user_id, user_email)
                     
                     if update_resp.data:
                         user_row = update_resp.data[0]
@@ -135,9 +150,9 @@ async def get_current_user_from_token(
                             current_username = f"{base_username}_{suffix}"
                             logger.warning(f"Username conflict for '{base_username}', retrying as '{current_username}'")
                         else:
-                            logger.error(f"Failed to auto-create user (Attempt {attempt+1}): {create_err}")
-                            if attempt == max_retries - 1:
-                                raise HTTPException(status_code=500, detail="Failed to create user account")
+                            # Non-collision error (v16.5.1): Fail fast
+                            logger.error(f"Critical Database Error during user creation: {create_err}")
+                            raise HTTPException(status_code=500, detail="Failed to create user account")
 
             if not user_row:
                 raise Exception("Failed to resolve or create user in database")
@@ -164,30 +179,30 @@ async def get_current_user_from_token(
 async def get_current_user_id(
     request: Request,
     authorization: Optional[str] = Header(None),
-    token: Optional[str] = Query(None)
+    background_tasks: Optional[BackgroundTasks] = None
 ) -> str:
     """Get the current authenticated user's canonical auth_user_id (v16.0.0)"""
-    user = await get_current_user_from_token(request, authorization, token)
+    user = await get_current_user_from_token(request, authorization, background_tasks)
     return user["auth_user_id"]
 
 async def get_current_user_ids(
     request: Request,
     authorization: Optional[str] = Header(None),
-    token: Optional[str] = Query(None)
+    background_tasks: Optional[BackgroundTasks] = None
 ) -> Dict[str, Any]:
     """Get the current authenticated user with both IDs"""
-    return await get_current_user_from_token(request, authorization, token)
+    return await get_current_user_from_token(request, authorization, background_tasks)
 
 async def get_optional_user_id(
     request: Request,
     authorization: Optional[str] = Header(None),
-    token: Optional[str] = Query(None)
+    background_tasks: Optional[BackgroundTasks] = None
 ) -> Optional[str]:
     """Get the current authenticated user's canonical ID (v16.0.0) if present and valid, otherwise None"""
     try:
-        if not authorization and not token:
+        if not authorization:
             return None
-        user = await get_current_user_from_token(request, authorization, token)
+        user = await get_current_user_from_token(request, authorization, background_tasks)
         return user.get("auth_user_id")
     except Exception:
         return None

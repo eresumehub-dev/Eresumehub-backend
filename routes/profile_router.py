@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, BackgroundTasks
 from typing import Dict, Any
 import os
 import json
 import logging
+import asyncio
 from datetime import datetime
 
 from services.supabase_service import supabase_service
@@ -24,8 +25,12 @@ logger = logging.getLogger(__name__)
 @router.get("/")
 async def get_profile(user_id: str = Depends(get_current_user_id)):
     """Fetch user profile with work experience and education"""
+    from app_settings import Config
     try:
-        profile = await profile_service.get_profile(user_id)
+        profile = await asyncio.wait_for(
+            profile_service.get_profile(user_id),
+            timeout=Config.AI_REQUEST_TIMEOUT
+        )
         if not profile:
             # Return a structured empty profile instead of 404 to gracefully handle new users
             return {
@@ -56,8 +61,12 @@ async def update_profile(
     user_id: str = Depends(get_current_user_id)
 ):
     """Create or update user profile manually"""
+    from app_settings import Config
     try:
-        profile = await profile_service.create_or_update_profile(user_id, profile_data)
+        profile = await asyncio.wait_for(
+            profile_service.create_or_update_profile(user_id, profile_data),
+            timeout=Config.AI_REQUEST_TIMEOUT
+        )
         return {"success": True, "profile": profile}
     except Exception as e:
         logger.error(f"Error updating profile: {str(e)}")
@@ -146,33 +155,35 @@ async def create_profile_from_resume(
         logger.exception(f"FAILSAFE: 500 Error during resume import: {str(e)}")
         raise HTTPException(status_code=500, detail="An unexpected error occurred during resume import.")
 
-@router.post("/upload-photo")
+@router.post("/photo")
 async def upload_profile_photo(
     file: UploadFile = File(...),
     user_id: str = Depends(get_current_user_id)
 ):
-    """Upload user profile picture to Supabase Storage"""
+    """Staff+ Production-Ready Profile Photo Upload (v16.5.2)."""
     try:
-        # Validate file
-        safe_filename = FileProcessor.validate_file(file) 
-        ext = os.path.splitext(safe_filename)[1].lower()
+        from uuid import uuid4
+        # 1. Validate Meta BEFORE Read (Staff+ Performance)
+        FileProcessor.validate_file(file) 
+        ext = os.path.splitext(file.filename)[1].lower() if file.filename else ".jpg"
         if ext not in ['.jpg', '.jpeg', '.png', '.webp']:
             raise HTTPException(status_code=400, detail="Only images allowed (jpg, png, webp)")
-        
-        # Read file content
+
+        # 2. Consume stream
         contents = await file.read()
+        filename = f"profile-{user_id}-{uuid4().hex[:8]}{ext}"
         
-        # Upload using Supabase Service (which handles bucket creation/publicity)
-        photo_url = await supabase_service.upload_profile_picture(user_id, contents, f"{int(datetime.utcnow().timestamp())}{ext}")
-        
-        # Update User Profile with new photo URL
+        # 3. Upload & Persist (Canonical Field: photo_url)
+        photo_url = await supabase_service.upload_profile_picture(user_id, contents, filename)
         await profile_service.create_or_update_profile(user_id, {"photo_url": photo_url})
         
         return {"success": True, "photo_url": photo_url}
 
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error uploading photo: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+        logger.error(f"Profile photo upload failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to upload photo")
 
 @router.get("/completion")
 async def get_profile_completion(user_id: str = Depends(get_current_user_id)):

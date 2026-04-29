@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any, Union
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, field_validator
 
 class ContactInfo(BaseModel):
     email: Optional[EmailStr] = None
@@ -22,7 +22,16 @@ class Experience(BaseModel):
     location: Optional[str] = None # Legacy field
     start_date: str
     end_date: Optional[str] = None
-    description: Union[str, List[str]]
+    description: List[str] = []
+
+    @field_validator('description', mode='before')
+    @classmethod
+    def normalize_description(cls, v):
+        if isinstance(v, str):
+            return [v] if v.strip() else []
+        if v is None:
+            return []
+        return v
 
 class Project(BaseModel):
     title: str

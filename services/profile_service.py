@@ -615,7 +615,7 @@ class ProfileService:
                 year, month = map(int, clean_date.split('-'))
                 if 1900 <= year <= 2100:
                     return f"{clean_date}-01"
-            except:
+            except Exception:
                 pass
 
         # Smart Regex extraction for "2023 - Current" or "Jan 2023"

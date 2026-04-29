@@ -1,4 +1,5 @@
 import logging
+import re
 from jinja2 import Environment, FileSystemLoader
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,6 @@ class HTMLGenerator:
             logger.warning(f"Template '{template_name}' not found, falling back to professional. Error: {e}")
             template = HTMLGenerator._env.get_template("resume_professional.jinja2")
 
-        import re
         def parse_rag_order(rag_order_list):
             if not rag_order_list:
                 return ["summary", "experience", "projects", "education", "certifications", "skills", "languages", "motivation"]
@@ -78,12 +78,12 @@ class HTMLGenerator:
                 return [clean_field(str(b)) for b in items if b and str(b).strip()]
             return [clean_field(str(items))]
 
-        # Create a safe copy of user_data to avoid side-effects on shared objects
-        safe_user_data = user_data.copy()
+        # Create a safe copy of user_data to avoid side-effects on shared objects (v16.5.0 Deepcopy)
+        import copy
+        safe_user_data = copy.deepcopy(user_data)
         safe_user_data["full_name"] = clean_field(safe_user_data.get("full_name", full_name))
         
         # Consistent Capitalization for Role & Title
-        import re
         def normalize_title(text):
             if not text: return text
             # Normalize casing for technical terms (e.g. Ai -> AI, Api -> API)

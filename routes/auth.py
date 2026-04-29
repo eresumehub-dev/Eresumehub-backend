@@ -3,8 +3,11 @@
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, EmailStr
 from typing import Optional
+import logging
 from utils.supabase_client import supabase
 from services.supabase_service import supabase_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -77,7 +80,8 @@ async def signup(body: SignupRequest):
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Signup error: {str(e)}")
+        logger.error(f"Signup error: {str(e)}")
+        raise HTTPException(status_code=500, detail="An error occurred. Please try again.")
 
 
 # -----------------------------
@@ -111,7 +115,8 @@ async def login(body: LoginRequest):
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Login error: {str(e)}")
+        logger.error(f"Login error: {str(e)}")
+        raise HTTPException(status_code=500, detail="An error occurred. Please try again.")
 
 
 # -----------------------------
@@ -146,4 +151,5 @@ async def me(authorization: Optional[str] = Header(None)):
         }
 
     except Exception as e:
-        raise HTTPException(status_code=401, detail=f"Token error: {str(e)}")
+        logger.error(f"Token error: {str(e)}")
+        raise HTTPException(status_code=401, detail="Authentication failed.")

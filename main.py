@@ -31,11 +31,6 @@ from services.resume_pipeline import PipelineError
 load_dotenv()
 from app_settings import Config
 print(f"BOOT_LOG: Discovery Chain -> {Config.REDIS_URL[:20]}...")
-# Aggressive Scan: Identify any URL-like variables for debugging
-for k, v in os.environ.items():
-    if v and (v.startswith("redis://") or v.startswith("http://") or v.startswith("https://")):
-         print(f"BOOT_LOG: URL-Like Entry Found -> {k}: {v[:15]}...")
-print(f"BOOT_LOG: Environment Keys -> {', '.join(k for k in os.environ.keys() if 'KEY' not in k.upper() and 'SECRET' not in k.upper())}")
 Config.validate()
 
 # -----------------------------
@@ -45,40 +40,63 @@ from services.supabase_service import supabase_service
 from services.analytics_service import AnalyticsService
 logger = logging.getLogger(__name__)
 
+import time
+import os
+os.environ["APP_VERSION"] = "16.4.15"
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Starting EresumeHub API [Staff+ Hardened]...")
+    boot_start = time.perf_counter()
+    logger.info(f"Starting EresumeHub API [Staff+ Hardened v{os.environ['APP_VERSION']}]...")
+    
     os.makedirs(Config.RAG_SCHEMAS_DIR, exist_ok=True)
     os.makedirs("logs", exist_ok=True)
     
-    if hasattr(supabase_service, "initialize"):
-        supabase_service.initialize(Config.SUPABASE_URL, Config.SUPABASE_KEY)
-            
-    # Initialize Analytics Service into global application state
+    # 1. Supabase Initialization Benchmark (Audit Phase 2)
+    svc_start = time.perf_counter()
+    # supabase_service uses lazy init now (Audit A3), 
+    # but we verify connection if needed.
+    logger.info(f"Service Discovery Sequence: {time.perf_counter() - svc_start:.4f}s")
+    
+    # 2. Analytics Service
     app.state.analytics_service = AnalyticsService(supabase_service)
     
-    # Initialize Redis SAFELY (v16.4.5 Sync Architecture)
+    # 3. Telemetry Service (Audit A2)
+    from services.telemetry_service import telemetry_service
+    await telemetry_service.start()
+    
+    # 4. Clear RAG Caches to ensure renamed/updated schemas are fresh (v16.5.3)
+    try:
+        from services.rag_service import knowledge_base_cache, language_template_cache
+        knowledge_base_cache.clear()
+        language_template_cache.clear()
+        logger.info("RAG Service: Caches cleared on startup.")
+    except Exception as e:
+        logger.warning(f"RAG Service: Failed to clear caches on startup: {e}")
+    
+    # 5. Initialize Redis SAFELY (v16.4.5 Sync Architecture)
+    redis_start = time.perf_counter()
     try:
         raw_url = Config.REDIS_URL
         masked_url = re.sub(r':([^@]+)@', ':****@', raw_url) if '@' in raw_url else raw_url
         logger.info(f"System Check: Redis Endpoint Identified -> {masked_url}")
         
         # Async Handle (For routes, idempotency, debounce)
-        logger.info("Initializing Async Redis Handle...")
         redis_async = aioredis.from_url(raw_url, decode_responses=False)
-        
         app.state.redis = redis_async
-        
-        logger.info("Distributed Job System: Offline (Synchronous Native Mode)")
+        logger.info(f"Redis Connection Seq: {time.perf_counter() - redis_start:.4f}s")
     except Exception as e:
         logger.critical(f"FATAL: Redis connection failed: {e}")
         app.state.redis = None
-        
-        # Staff+ Production Seal: Hard fail if infra is missing in production
         if Config.ENVIRONMENT == "production":
             raise RuntimeError(f"CRITICAL INFRASTRUCTURE FAILURE: Redis is REQUIRED in production environment. {e}")
 
+    logger.info(f"🚀 Total Startup Latency: {(time.perf_counter() - boot_start)*1000:.2f}ms (Target: <500ms)")
     yield
+    from services.telemetry_service import telemetry_service
+    await telemetry_service.stop()
+    from utils.supabase_client import close_client
+    await close_client()
     if hasattr(app.state, "redis") and app.state.redis:
         await app.state.redis.close()
     logger.info("Shutting down EresumeHub API...")
@@ -105,13 +123,7 @@ async def root():
 # Hardcoding production origins to bypass potential .env synchronization lag on Render
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://e-resumehub.netlify.app",
-        "https://eresumehub.com",
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "http://localhost:8000"
-    ],
+    allow_origins=Config.ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -145,9 +157,11 @@ async def global_exception_handler(request: Request, exc: Exception):
     # 🕵️ Global Audit Trace (v16.4.1)
     logger.exception(f"Unhandled Exception [{request_id}] ({type(exc).__name__}): {exc}")
     
-    # 🛡️ Total Transparency Mode (v16.4.2 Hardening)
-    # Temporarily force-exposing all exceptions even in production to catch the hidden crash.
-    user_message = f"Internal Exception: {str(exc)} [{type(exc).__name__}]"
+    # 🛡️ Global Exception Shielding (v16.4.3)
+    if Config.ENVIRONMENT == "production":
+        user_message = "An internal error occurred. Please try again."
+    else:
+        user_message = f"Internal Exception: {str(exc)} [{type(exc).__name__}]"
     if isinstance(exc, PipelineError):
         # Only expose known user-safe messages, mask internal paths
         user_message = getattr(exc, "message", "A pipeline error occurred.")
@@ -200,7 +214,7 @@ app.include_router(resume_router)
 from utils.auth_deps import get_current_user_from_token
 
 @app.get("/api/v1/user/me", tags=["Auth"])
-async def get_current_user_identity_proxy(request: Request):
+async def get_current_user_identity_proxy(request: Request, background_tasks: BackgroundTasks):
     """
     Canonical Identity Proxy (v16.4.6). 
     Resolves identity using the hardened service layer to prevent manual route invocation regressions.
@@ -210,7 +224,7 @@ async def get_current_user_identity_proxy(request: Request):
         return JSONResponse(status_code=401, content={"success": False, "error": "Missing Authorization header"})
         
     try:
-        user = await get_current_user_from_token(request, auth_header)
+        user = await get_current_user_from_token(request, auth_header, background_tasks)
         return {
             "success": True,
             "data": user
@@ -219,7 +233,7 @@ async def get_current_user_identity_proxy(request: Request):
         logger.error(f"Identity Proxy Failure: {e}")
         return JSONResponse(
             status_code=401, 
-            content={"success": False, "error": str(e)}
+            content={"success": False, "error": "Authentication failed"}
         )
 
 app.include_router(job_router)

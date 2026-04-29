@@ -29,3 +29,6 @@ Thumbs.db
 *.pdf
 crash_report_*.txt
 debug_*.html
+
+# Debug and Utility Scripts
+scripts/

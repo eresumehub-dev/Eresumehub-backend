@@ -102,7 +102,8 @@ class FileProcessor:
                 "warnings": warnings 
             }
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Failed to parse PDF: {str(e)}")
+            logger.error(f"Failed to parse PDF: {str(e)}")
+            raise HTTPException(status_code=400, detail="Failed to parse PDF. Please ensure the file is not corrupted or password-protected.")
 
     @staticmethod
     def _sanitize_text(text: str) -> str:
@@ -163,4 +164,5 @@ class FileProcessor:
                 }
             }
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Failed to parse DOCX: {str(e)}")
+            logger.error(f"Failed to parse DOCX: {str(e)}")
+            raise HTTPException(status_code=400, detail="Failed to parse DOCX. Please ensure the file is not corrupted.")

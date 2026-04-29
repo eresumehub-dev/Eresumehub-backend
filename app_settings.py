@@ -11,8 +11,10 @@ logger = logging.getLogger(__name__)
 class Config:
     OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "").strip('"').strip("'")
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "").strip('"').strip("'")
+    RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "").strip('"').strip("'")
+    SUPPORT_EMAIL: str = os.getenv("SUPPORT_EMAIL", "support@eresumehub.com")
     
-    API_SECRET_KEY: str = os.getenv("API_SECRET_KEY", "dev-secret-key-change-in-production")
+    API_SECRET_KEY: str = os.getenv("API_SECRET_KEY", "")
     MAX_FILE_SIZE_MB: int = int(os.getenv("MAX_FILE_SIZE_MB", 10))
     MAX_FILE_SIZE_BYTES: int = MAX_FILE_SIZE_MB * 1024 * 1024
     ALLOWED_ORIGINS: List[str] = [origin.strip().rstrip("/") for origin in os.getenv("ALLOWED_ORIGINS", "*").split(",") if origin.strip()]
@@ -32,6 +34,11 @@ class Config:
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
     SUPABASE_KEY: str = os.getenv("SUPABASE_SERVICE_KEY", "")
     SUPABASE_MAX_RETRIES: int = int(os.getenv("SUPABASE_MAX_RETRIES", 3))
+
+    # SLA Thresholds (v16.5.6 Hardening)
+    SLA_LATENCY_MS: int = int(os.getenv("SLA_LATENCY_MS", 300))
+    SLA_PAYLOAD_KB: int = int(os.getenv("SLA_PAYLOAD_KB", 500))
+
     # Deep Discovery Chain (v3.22.0)
     @classmethod
     def _discover_redis_url(cls) -> str:
@@ -49,6 +56,8 @@ class Config:
 
     @classmethod
     def validate(cls):
+        if not cls.API_SECRET_KEY:
+            raise RuntimeError("API_SECRET_KEY must be set in environment variables")
         if not cls.OPENROUTER_API_KEY:
             logger.warning("OPENROUTER_API_KEY not configured - AI features will be limited")
         if not cls.SUPABASE_URL or not cls.SUPABASE_KEY:

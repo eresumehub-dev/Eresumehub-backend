@@ -1,7 +1,10 @@
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
+import logging
+
+logger = logging.getLogger(__name__)
 
 class EventContext(BaseModel):
     ip: Optional[str] = None
@@ -19,15 +22,16 @@ class EventContext(BaseModel):
 
 class StandardEvent(BaseModel):
     event_name: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_id: Optional[str] = None # Logged in user (viewer)
     session_id: str
     context: Optional[EventContext] = None
     properties: Dict[str, Any] = {}
 
-    @validator('event_name')
-    def validate_event_name(cls, v):
+    @field_validator('event_name')
+    @classmethod
+    def validate_event_name(cls, v: str) -> str:
         allowed = [
             "resume_view_started",
             "resume_view_heartbeat",
@@ -38,6 +42,5 @@ class StandardEvent(BaseModel):
             "engagement_classified"
         ]
         if v not in allowed:
-            # We'll allow custom events but log a warning in the service
-            pass
+            logger.warning(f"Unknown event name received: '{v}'. Consider adding to allowed list.")
         return v

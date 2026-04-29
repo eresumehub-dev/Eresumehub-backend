@@ -31,10 +31,14 @@ services:
         value: "groq,gemini,openrouter"
       - key: X_STAFF_SECRET
         generateValue: true
+      - key: RESEND_API_KEY
+        sync: false
+      - key: SUPPORT_EMAIL
+        value: "support@eresumehub.com"
 
 databases:
   - name: eresumehub-redis
     type: redis
     region: oregon
-    plan: free # Change to 'standard' for production SLAs
+    plan: standard # Use standard for production SLAs and persistence
     ipAllowList: []

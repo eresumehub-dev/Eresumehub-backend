@@ -8,6 +8,8 @@ import uuid
 from datetime import datetime, timezone
 from services.supabase_service import supabase_service
 from services.ai_service import ai_service
+from services.profile_service import ProfileService
+from services.analytics_service import AnalyticsService
 
 logger = logging.getLogger(__name__)
 
@@ -54,9 +56,7 @@ class ResumeService:
             
             # 2. Cache Invalidation Burst (v10.0.0)
             if user_id:
-                from services.profile_service import ProfileService
-                from services.analytics_service import AnalyticsService
-                ProfileService.invalidate_cache(user_id)
+                await ProfileService.invalidate_cache(user_id)
                 AnalyticsService.invalidate_user_cache(user_id)
 
             return updated_resume
@@ -110,9 +110,7 @@ class ResumeService:
             })
             
             # Cache Invalidation Burst (v10.0.0)
-            from services.profile_service import ProfileService
-            from services.analytics_service import AnalyticsService
-            ProfileService.invalidate_cache(source_resume["user_id"])
+            await ProfileService.invalidate_cache(source_resume["user_id"])
             AnalyticsService.invalidate_user_cache(source_resume["user_id"])
 
             logger.info(f"Resume {resume_id} cloned to {cloned_resume['id']}")
@@ -240,9 +238,7 @@ class ResumeService:
 
             # Cache Invalidation Burst (v10.0.0)
             if user_id:
-                from services.profile_service import ProfileService
-                from services.analytics_service import AnalyticsService
-                ProfileService.invalidate_cache(user_id)
+                await ProfileService.invalidate_cache(user_id)
                 AnalyticsService.invalidate_user_cache(user_id)
 
             logger.info(f"Score {score} updated for resume {resume_id}")
@@ -271,9 +267,7 @@ class ResumeService:
 
             # Cache Invalidation (v10.0.0)
             if user_id:
-                from services.profile_service import ProfileService
-                from services.analytics_service import AnalyticsService
-                ProfileService.invalidate_cache(user_id)
+                await ProfileService.invalidate_cache(user_id)
                 AnalyticsService.invalidate_user_cache(user_id)
 
             logger.info(f"Resume {resume_id} archived")
@@ -281,7 +275,7 @@ class ResumeService:
             
         except Exception as e:
             logger.error(f"Failed to archive resume: {str(e)}")
-            return False
+            raise RuntimeError(f"Archiving failed: {str(e)}")
     
     async def delete_resume(self, resume_id: str) -> bool:
         """
@@ -297,8 +291,6 @@ class ResumeService:
 
             # 3. Cache Invalidation Burst (v10.0.0)
             if success and user_id:
-                from services.profile_service import ProfileService
-                from services.analytics_service import AnalyticsService
                 await ProfileService.invalidate_cache(user_id)
                 AnalyticsService.invalidate_user_cache(user_id)
 
@@ -306,7 +298,7 @@ class ResumeService:
             return success
         except Exception as e:
             logger.error(f"Failed to delete resume: {str(e)}")
-            return False
+            raise RuntimeError(f"Deletion failed: {str(e)}")
     
     async def restore_resume(self, resume_id: str) -> bool:
         """
@@ -322,9 +314,7 @@ class ResumeService:
 
             # Cache Invalidation (v10.0.0)
             if user_id:
-                from services.profile_service import ProfileService
-                from services.analytics_service import AnalyticsService
-                ProfileService.invalidate_cache(user_id)
+                await ProfileService.invalidate_cache(user_id)
                 AnalyticsService.invalidate_user_cache(user_id)
 
             logger.info(f"Resume {resume_id} restored")
@@ -357,9 +347,7 @@ class ResumeService:
             }).execute()
             
             # Cache Invalidation (v15.1.0 Deterministic)
-            from services.profile_service import ProfileService
-            from services.analytics_service import AnalyticsService
-            ProfileService.invalidate_cache(user_id)
+            await ProfileService.invalidate_cache(user_id)
             AnalyticsService.invalidate_user_cache(user_id)
 
             logger.info(f"Resume {resume_id} set as default for user {user_id} via RPC")

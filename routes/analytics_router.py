@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Body, Request
+from fastapi import APIRouter, Depends, HTTPException, Body, Request, BackgroundTasks
 from services.supabase_service import supabase_service
 from services.analytics_service import AnalyticsService
 from models.event_schema import StandardEvent
@@ -45,10 +45,10 @@ async def track_event(request: Request, event: StandardEvent):
     except Exception as e:
         logger.error(f"Event Track Fail: {str(e)}")
         # Don't crash frontend trackers, just return fail
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Failed to track event"}
 
 @router.post("/view")
-async def log_view(request: Request, view_data: Dict[str, Any] = Body(...)):
+async def log_view(request: Request, background_tasks: BackgroundTasks, view_data: Dict[str, Any] = Body(...)):
     """Log a view start and return view_id (Legacy Wrapper -> V12 Tracker)"""
     try:
         # Legacy mapping (v12.0.0)
@@ -74,9 +74,8 @@ async def log_view(request: Request, view_data: Dict[str, Any] = Body(...)):
         # Also keep legacy DB write as safety until events_raw is fully verified
         result = await supabase_service.log_resume_view(resume_id, view_data)
         
-        # Async track (don't block legacy return)
-        import asyncio
-        asyncio.create_task(supabase_service.client.table("events_raw").insert(event.dict()).execute())
+        # Background track (v16.5.2)
+        background_tasks.add_task(supabase_service.client.table("events_raw").insert(event.dict()).execute)
         
         if isinstance(result, str):
             return {"success": True, "view_id": result}
@@ -84,7 +83,8 @@ async def log_view(request: Request, view_data: Dict[str, Any] = Body(...)):
              return {"success": True, "view_id": None}
              
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"View logging failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.post("/view/{view_id}/heartbeat")
 async def view_heartbeat(view_id: str, data: Dict[str, Any] = Body(...)):
@@ -93,7 +93,8 @@ async def view_heartbeat(view_id: str, data: Dict[str, Any] = Body(...)):
         success = await supabase_service.update_view_duration(view_id, data)
         return {"success": success}
     except Exception as e:
-         raise HTTPException(status_code=500, detail=str(e))
+         logger.error(f"Heartbeat failed: {e}")
+         raise HTTPException(status_code=500, detail="Internal server error")
 
 from utils.auth_deps import get_current_user_id
 
@@ -105,10 +106,11 @@ async def get_dashboard_stats(request: Request, user_id: str = Depends(get_curre
         stats = await analytics_service.get_dashboard_analytics(user_id)
         return {"success": True, "data": stats}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Dashboard stats failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.post("/download")
-async def log_download(request: Request, download_data: Dict[str, Any] = Body(...)):
+async def log_download(request: Request, background_tasks: BackgroundTasks, download_data: Dict[str, Any] = Body(...)):
     """Log a download (Legacy -> V12 Wrapper)"""
     try:
         resume_id = download_data.get("resume_id")
@@ -122,12 +124,14 @@ async def log_download(request: Request, download_data: Dict[str, Any] = Body(..
             session_id=download_data.get("session_id") or "legacy_dl",
             properties={"resume_id": resume_id, "file_format": "pdf"}
         )
-        asyncio.create_task(supabase_service.client.table("events_raw").insert(event.dict()).execute())
+        # Background track (v16.5.2)
+        background_tasks.add_task(supabase_service.client.table("events_raw").insert(event.dict()).execute)
 
         result = await supabase_service.log_resume_download(resume_id, download_data)
         return {"success": result}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        logger.error(f"Download logging failed: {e}")
+        return {"success": False, "error": "Internal server error"}
 
 @router.get("/nudges")
 async def get_active_nudges(request: Request, user_id: str = Depends(get_current_user_id)):
@@ -138,7 +142,7 @@ async def get_active_nudges(request: Request, user_id: str = Depends(get_current
         return {"success": True, "data": nudges}
     except Exception as e:
         logger.error(f"Nudge Fetch Error: {e}")
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Internal server error"}
 
 @router.post("/nudges/dismiss")
 async def dismiss_nudge(
@@ -157,4 +161,4 @@ async def dismiss_nudge(
         return {"success": success}
     except Exception as e:
         logger.error(f"Nudge Dismiss Error: {e}")
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Internal server error"}

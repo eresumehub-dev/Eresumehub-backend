@@ -1,73 +1,72 @@
 import time
 import logging
-import asyncio
-from fastapi import Request
-from starlette.middleware.base import BaseHTTPMiddleware
-from services.supabase_service import supabase_service
+from starlette.types import ASGIApp, Scope, Receive, Send
+from services.telemetry_service import telemetry_service
 
 logger = logging.getLogger(__name__)
 
-class LatencyMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        start_time = time.time()
-        
-        try:
-            # 1. Execute Request
-            response = await call_next(request)
-            
-            # 2. Measure Duration & Size Safely (v16.4.3 Resilience)
-            duration_ms = (time.time() - start_time) * 1000
-            
-            # Use safe header access to prevent TypeError crash
-            content_length = response.headers.get("Content-Length")
-            try:
-                size_kb = round(int(content_length) / 1024, 2) if content_length and content_length.isdigit() else 0
-            except (ValueError, TypeError):
-                size_kb = 0
-            
-            # 3. Log Asynchronously (Fire and Forget)
-            asyncio.create_task(self._log_performance(request, response.status_code, duration_ms, size_kb))
-            
-            return response
-            
-        except Exception as e:
-            # 🛡️ Monitoring Isolation (v16.4.3)
-            # Monitoring should NEVER crash the primary response cycle.
-            # If we hit an unhandled exception here, we let it propagate 
-            # to the global_exception_handler which is forced to return JSON in main.py.
-            logger.error(f"LatencyMiddleware Failure in request execution: {e}")
-            raise
+class LatencyMiddleware:
+    """
+    Staff+ Latency & Performance Middleware (v16.5.6).
+    Final non-blocking ASGI implementation with direct queue dispatch.
+    """
+    def __init__(self, app: ASGIApp):
+        self.app = app
 
-    async def _log_performance(self, request: Request, status_code: int, duration_ms: float, size_kb: float):
-        try:
-            # Skip noise
-            if request.url.path in ['/', '/health', '/favicon.ico']:
-                return
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
 
-            user_id = getattr(request.state, "user_id", None)
-            
-            log_data = {
-                "path": request.url.path,
-                "method": request.method,
-                "duration_ms": round(duration_ms, 2),
-                "response_size_kb": size_kb,
-                "status_code": status_code,
-                "user_id": user_id
+        start_time = time.perf_counter()
+        status_code = 500
+        content_length = 0
+
+        async def send_wrapper(message):
+            nonlocal status_code, content_length
+            if message["type"] == "http.response.start":
+                status_code = message.get("status", 200)
+                for key, value in message.get("headers", []):
+                    if key == b"content-length":
+                        try:
+                            content_length = int(value.decode("latin-1"))
+                        except ValueError: 
+                            pass
+                        break
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_wrapper)
+        finally:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            payload = {
+                "method": scope.get("method"),
+                "path": scope.get("path"),
+                "status": status_code,
+                "ms": duration_ms,
+                "kb": round(content_length / 1024, 2)
             }
             
-            # 1. Persist to Observability Table (TEMPORARILY DISABLED: RLS Violation Noise)
-            # await supabase_service.client.table("endpoint_latency_logs").insert(log_data).execute()
-            logger.debug(f"Telemetry Log: {log_data['path']} - {log_data['duration_ms']}ms")
+            # RESOLVED: Direct call to non-blocking telemetry queue (Audit Fix)
+            # asyncio.Queue.put_nowait is fast and safe here as we are on the main event loop thread.
+            # No create_task needed, avoiding GC and thread-safety risks.
+            telemetry_service.enqueue("latency", payload)
+
+            self._audit_sla(scope, status_code, duration_ms, content_length / 1024)
+
+    def _audit_sla(self, scope, status, ms, kb):
+        from app_settings import Config
+        try:
+            path = scope.get("path", "")
+            if path in ('/health', '/api/health', '/'):
+                return
+
+            method = scope.get("method", "unknown")
             
-            # 2. Production SLA Auditing (v15.2.0 Enforcement)
-            is_slow = duration_ms > 300
-            is_bloated = size_kb > 50
-            
-            if is_slow:
-                logger.warning(f"🚨 SLA BREACH [LATENCY]: {request.method} {request.url.path} took {round(duration_ms)}ms (Limit: 300ms)")
-            
-            if is_bloated:
-                logger.warning(f"🚨 SLA BREACH [PAYLOAD]: {request.method} {request.url.path} is {size_kb}KB (Limit: 50KB)")
+            # Use configurable thresholds (Audit Recommendation)
+            if ms > Config.SLA_LATENCY_MS:
+                logger.warning(f"🚨 SLA BREACH [LATENCY]: {method} {path} took {round(ms)}ms (Limit: {Config.SLA_LATENCY_MS}ms)")
                 
+            if kb > Config.SLA_PAYLOAD_KB:
+                logger.warning(f"🚨 SLA BREACH [PAYLOAD]: {method} {path} is {round(kb, 2)}KB (Limit: {Config.SLA_PAYLOAD_KB}KB)")
         except Exception as e:
-            logger.error(f"Performance Auditing Failure: {e}")
+            logger.error(f"SLA Audit Failed: {e}")

@@ -45,7 +45,8 @@ Every bullet MUST include:
 - numbers
 - scale
 - impact
-If unknown → estimate realistically based on the role and industry.
+If a metric is unknown, insert [ADD METRIC] as a placeholder for the user to complete.
+Do NOT estimate or invent any numbers, percentages, or impact figures.
 Example: "Built backend API" (WRONG) -> "Built backend API handling 5K+ monthly users" (CORRECT).
 
 - CONCURRENT ROLES: If the user has multiple overlapping 'Present' roles, clarify them (e.g. mark one as 'Consulting' or 'Part-time') to avoid recruiter friction.
@@ -92,8 +93,9 @@ STRICT RE-WRITE RULES:
 1. FULL REGENERATION: Do NOT patch partial fields. Re-generate the WHOLE JSON document for perfect tone and section coherence.
 2. METRICS: Every single bullet point MUST now have a number, percentage, or specific scale.
 3. VERBS: Absolutely NO "Helped", "Contributing", or "Assisted". Use "Spearheaded", "Directed", "Executed", "Engineered".
-4. MANDATORY SECTIONS: Ensure a Language section exists with CEFR levels (A1-C2).
-5. EDUCATION: Remove any education below Bachelor's level (e.g., High School/Pre-University).
+4. LANGUAGE LEVELS: Ensure a Language section exists with appropriate proficiency levels.
+   - Japan resumes: Use JLPT (N1-N5) for Japanese. Do NOT use CEFR for Japanese.
+   - All other markets: Use CEFR levels (A1-C2).
 
 INPUT JSON:
 {payload_json}
@@ -115,9 +117,15 @@ JOB DESCRIPTION:
 
 Return ONLY a valid JSON object with this exact schema:
 {{
-  "qualification_score": <integer 0-100>,
+  "score": <integer 0-100>,
   "strengths": ["<string>", ...],
   "warnings": ["<string>", ...],
-  "suggested_role": "<string or null>"
+  "errors": ["<string>", ...],
+  "keywords": {{
+    "found": <integer>,
+    "recommended": <integer>,
+    "missing": ["<string>", ...]
+  }},
+  "countrySpecific": ["<string>", ...]
 }}
 """

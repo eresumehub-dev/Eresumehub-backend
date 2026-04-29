@@ -1,0 +1,60 @@
+{
+  "country": "United States",
+  "description": "Knowledge base for US Resume creation (2025-2026)",
+  "ats_optimization": {
+    "description": "Standard rules for US ATS (Applicant Tracking Systems)",
+    "fonts": ["Arial", "Calibri", "Helvetica", "Georgia"],
+    "font_size": "10-12pt for text, 14-16pt for headings",
+    "file_format": "PDF (universal) or DOCX (preferred for some older ATS)",
+    "layout": "Clean, single-column, no columns/tables",
+    "avoid": [
+      "Photos",
+      "Graphics/Icons",
+      "Multiple columns",
+      "Tables",
+      "Headers/Footers with critical info"
+    ],
+    "must_have": [
+      "Standard section headings",
+      "Quantifiable achievements",
+      "Action verbs",
+      "Keywords from job description"
+    ]
+  },
+  "cv_structure": {
+    "max_pages": 2,
+    "order": [
+      "Header (Contact Info)",
+      "Professional Summary/Objective",
+      "Skills/Core Competencies",
+      "Professional Experience",
+      "Education",
+      "Projects (optional)",
+      "Certifications (optional)"
+    ],
+    "mandatory_sections": {
+      "header": {
+        "required": ["Full name", "Email", "Phone", "Location (City, State)"],
+        "optional": ["LinkedIn URL", "GitHub/Portfolio"],
+        "prohibited": ["Photo", "Date of birth", "Gender", "Marital status", "Nationality"]
+      },
+      "experience": {
+        "format": "Company Name, Title, Dates (Month YYYY - Present/Month YYYY)",
+        "bullets": "3-5 achievement-oriented bullet points starting with action verbs",
+        "quantify": "Include percentages, dollar amounts, and time saved"
+      },
+      "education": {
+        "format": "Degree, Major, University, Location, Graduation Year",
+        "include_gpa": "Only if >3.5 and recently graduated"
+      }
+    }
+  },
+  "cultural_rules": {
+    "photo": "Strictly NO - photos lead to automatic rejection in the US to avoid bias/discrimination claims",
+    "tone": "Confident, result-oriented, and direct; avoid humble phrasing",
+    "length": "1 page for <10 years experience, 2 pages for 10+ years",
+    "anti_discrimination": "Do NOT include age, race, religion, or personal lifestyle details",
+    "date_format": "Month Day, Year or Month YYYY"
+  },
+  "required_languages": ["English"]
+}

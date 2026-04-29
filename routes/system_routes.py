@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi import APIRouter, Request, HTTPException, Depends, BackgroundTasks
 from typing import Dict, Any
 from utils.auth_deps import get_current_user_id
 import logging
@@ -41,3 +41,28 @@ async def get_system_stats(request: Request, user_id: str = Depends(get_current_
     except Exception as e:
         logger.error(f"System stats fetch failed: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch system metrics")
+
+@router.post("/contact")
+async def submit_contact_form(request: Request, background_tasks: BackgroundTasks):
+    """Handles incoming contact form submissions with real email delivery (v16.5.2)."""
+    try:
+        data = await request.json()
+        name = data.get("name", "Unknown")
+        email = data.get("email", "Unknown")
+        topic = data.get("topic", "General")
+        message = data.get("message", "")
+        
+        # PII-Safe Logging (v16.5.2 Alignment)
+        logger.info(f"[SUPPORT REQUEST] Topic: {topic} | Received: {len(message)} chars")
+        
+        # Wire to real email delivery in background
+        from utils.email_service import email_service
+        background_tasks.add_task(email_service.send_contact_email, name, email, topic, message)
+        
+        return {
+            "success": True, 
+            "message": "Message received successfully. Our team will contact you shortly."
+        }
+    except Exception as e:
+        logger.error(f"Contact form submission failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to submit contact form")

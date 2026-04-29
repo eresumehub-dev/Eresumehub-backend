@@ -12,7 +12,7 @@ httpx>=0.23.0              # Async HTTP client
 #  OPENAI / LLM SUPPORT
 # ===============================
 openai>=1.12.0
-google-generativeai==0.3.2  # Google Gemini AI
+google-generativeai>=0.7.0  # Google Gemini AI
 tenacity==8.2.3            # Retry logic for AI calls
 cachetools==5.3.2          # Caching AI responses
 sentry-sdk[fastapi]==1.40.0  # Error tracking
