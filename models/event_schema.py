@@ -39,7 +39,10 @@ class StandardEvent(BaseModel):
             "resume_download",
             "section_view",
             "return_visit",
-            "engagement_classified"
+            "engagement_classified",
+            "generation_started",
+            "generation_failed",
+            "generation_succeeded"
         ]
         if v not in allowed:
             logger.warning(f"Unknown event name received: '{v}'. Consider adding to allowed list.")

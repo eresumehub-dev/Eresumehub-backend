@@ -14,6 +14,13 @@ class ContactInfo(BaseModel):
     portfolio: Optional[str] = None
     links: Optional[List[Dict[str, str]]] = []
 
+    @field_validator('email', 'phone', 'linkedin', 'github', 'portfolio', mode='before')
+    @classmethod
+    def empty_string_to_none(cls, v):
+        if v == '':
+            return None
+        return v
+
 class Experience(BaseModel):
     title: str
     company: str
@@ -28,9 +35,16 @@ class Experience(BaseModel):
     @classmethod
     def normalize_description(cls, v):
         if isinstance(v, str):
+            if v == '': return []
             return [v] if v.strip() else []
         if v is None:
             return []
+        return v
+
+    @field_validator('city', 'country', 'end_date', mode='before')
+    @classmethod
+    def empty_string_to_none(cls, v):
+        if v == '': return None
         return v
 
 class Project(BaseModel):
@@ -50,6 +64,12 @@ class Education(BaseModel):
     graduation_date: Optional[str] = None
     gpa: Optional[float] = None
 
+    @field_validator('city', 'country', 'graduation_date', mode='before')
+    @classmethod
+    def empty_string_to_none(cls, v):
+        if v == '': return None
+        return v
+
 class UserData(BaseModel):
     full_name: str = Field(..., min_length=2, max_length=100)
     headline: Optional[str] = None
@@ -64,6 +84,12 @@ class UserData(BaseModel):
     certifications: Optional[List[str]] = []
     links: Optional[List[Dict[str, str]]] = []
     languages: Optional[List[Union[str, Dict[str, str]]]] = ["English"]
+
+    @field_validator('headline', 'date_of_birth', 'nationality', 'summary', mode='before')
+    @classmethod
+    def empty_string_to_none(cls, v):
+        if v == '': return None
+        return v
 
 class CreateResumeRequest(BaseModel):
     title: str = Field(..., min_length=2, max_length=100)

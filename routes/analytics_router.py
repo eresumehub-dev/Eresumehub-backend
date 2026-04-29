@@ -10,7 +10,7 @@ import logging
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/analytics", tags=["Analytics"])
 @router.post("/events/track")
-async def track_event(request: Request, event: StandardEvent):
+async def track_event(request: Request, background_tasks: BackgroundTasks, event: StandardEvent):
     """
     Standard GA-Level Event Tracker (v12.0.0)
     Ensures every interaction follows the strict analytical contract.
@@ -30,17 +30,12 @@ async def track_event(request: Request, event: StandardEvent):
 
         # 2. Schema-Aware Persistence
         # We push to the 'events_raw' table in Supabase
-        event_dict = event.dict()
+        event_dict = event.model_dump(mode='json')
         
-        # Flatten context for easier SQL querying (or keep as JSONB)
-        # For this design, we'll store context and properties as JSONB
-        success = await supabase_service.client.table("events_raw").insert(event_dict).execute()
+        # Background track (v16.5.2)
+        background_tasks.add_task(supabase_service.client.table("events_raw").insert(event_dict).execute)
         
-        if success:
-            logger.info(f"Event Tracked: {event.event_name} | Session: {event.session_id}")
-            return {"success": True, "event_id": event.event_id}
-        else:
-            raise HTTPException(status_code=500, detail="Failed to persist event")
+        return {"success": True, "event_id": event.event_id}
             
     except Exception as e:
         logger.error(f"Event Track Fail: {str(e)}")
@@ -75,7 +70,7 @@ async def log_view(request: Request, background_tasks: BackgroundTasks, view_dat
         result = await supabase_service.log_resume_view(resume_id, view_data)
         
         # Background track (v16.5.2)
-        background_tasks.add_task(supabase_service.client.table("events_raw").insert(event.dict()).execute)
+        background_tasks.add_task(supabase_service.client.table("events_raw").insert(event.model_dump(mode='json')).execute)
         
         if isinstance(result, str):
             return {"success": True, "view_id": result}
@@ -125,7 +120,7 @@ async def log_download(request: Request, background_tasks: BackgroundTasks, down
             properties={"resume_id": resume_id, "file_format": "pdf"}
         )
         # Background track (v16.5.2)
-        background_tasks.add_task(supabase_service.client.table("events_raw").insert(event.dict()).execute)
+        background_tasks.add_task(supabase_service.client.table("events_raw").insert(event.model_dump(mode='json')).execute)
 
         result = await supabase_service.log_resume_download(resume_id, download_data)
         return {"success": result}
