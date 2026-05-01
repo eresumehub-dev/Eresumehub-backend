@@ -438,6 +438,10 @@ class ResumePipeline:
                     await self.supabase_service.delete_resume(resume_id)
                 except Exception as cleanup_error:
                     logger.warning(f"[{self.request_id}] Cleanup deletion failed: {cleanup_error}")
+            error_msg = str(e)
+            if "limit reached" in error_msg.lower():
+                 raise StorageError(code="LIMIT_REACHED", message="Resume limit reached. Maximum 50 resumes allowed. Please delete some resumes to create a new one.")
+            
             logger.error(f"[{self.request_id}] Storage failure: {e}")
             raise StorageError(code="STORAGE_FAIL", message="Resume could not be saved.")
 
