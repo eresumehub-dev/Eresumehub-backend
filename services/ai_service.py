@@ -734,9 +734,29 @@ class AIService:
         schema = {
             "generated_summary": "string (strictly optimize professional summary for this ATS and role)",
             "headline": "string (professional headline strictly matching requested role)",
-            "experience": [{"job_title": "str", "company": "str", "description": ["str"], "achievements": ["str"]}],
-            "projects": [{"title": "str", "description": ["str"]}],
-            "education": [{"degree": "str", "institution": "str"}],
+            "experience": [{
+                "job_title": "str", 
+                "company": "str", 
+                "location": "str (City, Country)",
+                "start_date": "YYYY-MM",
+                "end_date": "YYYY-MM or 'present'",
+                "description": ["str"], 
+                "achievements": ["str"]
+            }],
+            "projects": [{
+                "title": "str", 
+                "role": "str",
+                "start_date": "YYYY-MM",
+                "end_date": "YYYY-MM or 'present'",
+                "technologies": ["str"],
+                "description": ["str"]
+            }],
+            "education": [{
+                "degree": "str", 
+                "institution": "str",
+                "location": "str",
+                "graduation_date": "YYYY-MM"
+            }],
             "skills": ["string"],
             "languages": [{"language": "str", "proficiency_cefr": "str"}],
             "certifications": ["string"]
@@ -764,7 +784,7 @@ class AIService:
         # 🧪 Phase 3.1: Hybrid Adaptive Prompting
         compliance_rules = ""
         if compliance_gap:
-             compliance_rules = f"\n        🚨 COMPLIANCE GAP (ADAPT REQUIRED):\n        The applicant profile is currently missing some {country} fields: {', '.join(compliance_gap)}.\n        DO NOT fail or return INSUFFICIENT_DATA. DO NOT hallucinate these values. \n        Instead, proceed with generation by ensuring the professional summary and achievements are exceptionally strong to mitigate these missing sections."
+             compliance_rules = f"\n        🚨 COMPLIANCE GAP (ADAPT REQUIRED):\n        The applicant profile for {country} is currently missing: {', '.join(compliance_gap)}.\n        DO NOT fail. DO NOT hallucinate. \n        Proceed by ensuring existing sections are exceptionally strong to compensate for missing regional data."
 
         compliance_injection = build_compliance_block(country, compliance_rules)
 

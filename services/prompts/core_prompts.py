@@ -300,10 +300,11 @@ VERB QUALITY
 
 METRICS POLICY
   - Include a metric ONLY if it appears verbatim in <input_data>.
-  - No metric in <input_data> → append [ADD METRIC] to that bullet point.
+  - If a quantified number/percentage already exists in the bullet → DO NOT add [ADD METRIC].
+  - If NO metric or quantified number exists → append [ADD METRIC] to that bullet point.
   - Never estimate, invent, or extrapolate numbers, percentages, or ratios.
   - Correct:   "Engineered checkout backend API [ADD METRIC]."
-  - Incorrect: "Engineered checkout backend API, improving performance by 40%."
+  - Correct:   "Increased system uptime to 99.9%." (No placeholder added)
 
 CONCURRENT ROLES
   - Two or more roles with end_date "present" → add parenthetical to each title.

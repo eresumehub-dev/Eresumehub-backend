@@ -347,19 +347,36 @@ class ResumePipeline:
             except Exception as pic_err:
                 self.logger.warning(f"[{self.request_id}] Failed to resolve profile picture: {pic_err}")
         
-        # 🧬 v16.5.9: Bi-directional Normalization (Fix for missing sections)
-        # The AI returns 'experience'/'education', but templates expect 'work_experiences'/'educations'
-        # We must populate BOTH to ensure total compatibility.
+        # 🧬 v16.6.0: Smart Metadata-Preserving Merge (Fix for Data Loss)
+        # 1. Alias 'experience'/'education' keys to ensure template compatibility
         if enriched_data.get("experience"):
-             enriched_data["work_experiences"] = enriched_data["experience"]
+            enriched_data["work_experiences"] = enriched_data["experience"]
         if enriched_data.get("education"):
-             enriched_data["educations"] = enriched_data["education"]
-             
-        # Reverse mapping for safety
-        if not enriched_data.get("experience"):
-             enriched_data["experience"] = enriched_data.get("work_experiences", [])
-        if not enriched_data.get("education"):
-             enriched_data["education"] = enriched_data.get("educations", [])
+            enriched_data["educations"] = enriched_data["education"]
+
+        # 2. Re-attach rich metadata (dates/locations) if the AI stripped them
+        # This acts as a safety net for "Bug 1" / Schema stripping.
+        for exp in enriched_data.get("work_experiences", []):
+            if not exp.get("start_date") or not exp.get("location"):
+                # Try to find matching record in user_data by company/title
+                for p_exp in user_data.get("experience", user_data.get("work_experiences", [])):
+                    if p_exp.get("company") == exp.get("company"):
+                        exp["start_date"] = exp.get("start_date") or p_exp.get("start_date")
+                        exp["end_date"] = exp.get("end_date") or p_exp.get("end_date")
+                        exp["location"] = exp.get("location") or p_exp.get("location") or p_exp.get("city")
+                        break
+        
+        for edu in enriched_data.get("educations", []):
+            if not edu.get("graduation_date"):
+                for p_edu in user_data.get("education", user_data.get("educations", [])):
+                    if p_edu.get("institution") == edu.get("institution"):
+                        edu["graduation_date"] = edu.get("graduation_date") or p_edu.get("graduation_date")
+                        edu["location"] = edu.get("location") or p_edu.get("location") or p_edu.get("city")
+                        break
+
+        # Final bi-directional sync
+        enriched_data["experience"] = enriched_data.get("work_experiences", [])
+        enriched_data["education"] = enriched_data.get("educations", [])
              
         return resume_autocorrect.autocorrect_for_country(enriched_data, country), generated_data
 
