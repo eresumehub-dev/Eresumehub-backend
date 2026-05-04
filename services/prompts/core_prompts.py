@@ -162,12 +162,13 @@ NON-NEGOTIABLE SYSTEM RULES — These override every other instruction.
    No mixing languages unless explicitly required by market rules.
 
 5. FAIL-FAST — SCHEMA-SAFE
-   If input is ambiguous, conflicting, or critically incomplete:
+   If input is critically incomplete (e.g. no name, no experience, or missing a required Job Description):
      - Set status.success to false.
      - Set status.error_code to the appropriate error code.
      - Return null or [] for ALL fields inside "data".
      - NEVER replace the schema structure with a raw error object.
      - NEVER output {{"error": "..."}} — that breaks strict schema enforcement.
+   NOTE: If a "COMPLIANCE GAP" block is present, those missing fields are ACKNOWLEDGED and you must proceed with generation by adapting the content as instructed, rather than failing.
 
 6. COMPILER MINDSET
    You are a deterministic data compiler, not a creative writer.
@@ -356,12 +357,11 @@ Step 1 — Write an <audit> block covering ALL of the following:
 
 Step 2 — Output the JSON object.
   On success: status.success=true, data=formatted resume.
-  On failure (insufficient input data):
+  On failure (CRITICAL data missing — e.g. no name, or zero work experience, or no Job Description):
     status.success=false, status.error_code="INSUFFICIENT_DATA",
     status.message lists the missing fields, all data fields null/[].
-  On failure (missing JD):
-    status.success=false, status.error_code="MISSING_JOB_DESCRIPTION",
-    all data fields null/[].
+  NOTE: Missing nationality, languages, or other "compliance" fields are NOT critical failures. 
+  If these are in a "COMPLIANCE GAP", you MUST return status.success=true and adapt.
 
 OUTPUT:
 <audit>
@@ -603,7 +603,6 @@ def get_prompt(name: str) -> str:
 
         prompt = get_prompt("tailor").format(
             country="Germany",
-            job_title="Senior Backend Engineer",
             compliance_injection_block=build_compliance_block("Germany", rules),
             user_data_json=json.dumps(user_data),
             job_description=jd_text,

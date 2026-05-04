@@ -764,7 +764,7 @@ class AIService:
         # 🧪 Phase 3.1: Hybrid Adaptive Prompting
         compliance_rules = ""
         if compliance_gap:
-             compliance_rules = f"\n        🚨 COMPLIANCE GAP (ADAPT REQUIRED):\n        The applicant profile is currently missing mandatory {country} fields: {', '.join(compliance_gap)}.\n        DO NOT hallucinate these values. Instead, ensure the professional summary and achievements are exceptionally strong and quantified to mitigate these missing requirements."
+             compliance_rules = f"\n        🚨 COMPLIANCE GAP (ADAPT REQUIRED):\n        The applicant profile is currently missing some {country} fields: {', '.join(compliance_gap)}.\n        DO NOT fail or return INSUFFICIENT_DATA. DO NOT hallucinate these values. \n        Instead, proceed with generation by ensuring the professional summary and achievements are exceptionally strong to mitigate these missing sections."
 
         compliance_injection = build_compliance_block(country, compliance_rules)
 
