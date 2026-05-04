@@ -271,36 +271,61 @@ class ProfileService:
                     .execute()
                 profile_id = response.data[0]['id']
             
-            # Handle work experiences (Skip overwrite if AI import has none but DB has some)
-            if 'work_experiences' in profile_data:
-                should_update_work = not (is_ai_import and not profile_data['work_experiences'])
-                if should_update_work:
-                    await self._update_work_experiences(profile_id, profile_data['work_experiences'])
+            # Handle sub-table updates in parallel (v16.5.2)
+            update_tasks = []
+            
+            # Handle work experiences
+            if 'work_experiences' in profile_data and not (is_ai_import and not profile_data['work_experiences']):
+                update_tasks.append(self._update_work_experiences(profile_id, profile_data['work_experiences']))
             
             # Handle education
-            if 'educations' in profile_data:
-                should_update_edu = not (is_ai_import and not profile_data['educations'])
-                if should_update_edu:
-                    await self._update_educations(profile_id, profile_data['educations'])
+            if 'educations' in profile_data and not (is_ai_import and not profile_data['educations']):
+                update_tasks.append(self._update_educations(profile_id, profile_data['educations']))
 
             # Handle projects
-            if 'projects' in profile_data:
-                should_update_proj = not (is_ai_import and not profile_data['projects'])
-                if should_update_proj:
-                    await self._update_projects(profile_id, profile_data['projects'])
+            if 'projects' in profile_data and not (is_ai_import and not profile_data['projects']):
+                update_tasks.append(self._update_projects(profile_id, profile_data['projects']))
             
             # Handle certifications
-            if 'certifications' in profile_data:
-                should_update_cert = not (is_ai_import and not profile_data['certifications'])
-                if should_update_cert:
-                    await self._update_certifications(profile_id, profile_data['certifications'])
+            if 'certifications' in profile_data and not (is_ai_import and not profile_data['certifications']):
+                update_tasks.append(self._update_certifications(profile_id, profile_data['certifications']))
             
-            # Handle profile extras (Skills, Links, Translations, etc.) (v16.2.0 Alignment)
+            # Handle profile extras
             if 'extras' in profile_data:
-                await self._update_profile_extras(profile_id, profile_data['extras'])
+                update_tasks.append(self._update_profile_extras(profile_id, profile_data['extras']))
             
-            # Cache Invalidation (v10.0.0)
-            await self.invalidate_cache(user_id)
+            # Execute all updates in parallel
+            if update_tasks:
+                await asyncio.gather(*update_tasks)
+            
+            # 3. Smart Cache Management (v16.5.2 Optimization)
+            # If only scalar fields changed (update_tasks is empty), patch the cache in-place
+            if not update_tasks:
+                try:
+                    cache_key = f"{self.CACHE_PREFIX}{user_id}"
+                    cached_container = await cache_service.get(cache_key)
+                    if cached_container and 'data' in cached_container:
+                        # In-place patch for scalar fields
+                        cached_profile = cached_container['data'].get('profile', {})
+                        
+                        # Apply new values from profile_payload
+                        for field, value in profile_payload.items():
+                            if field not in ['user_id', 'updated_at']:
+                                cached_profile[field] = value
+                        
+                        cached_container['data']['profile'] = cached_profile
+                        # Push back to Redis with refreshed TTL
+                        await cache_service.set(cache_key, cached_container, ttl_seconds=3600)
+                        logger.info(f"BOOTSTRAP-FAST In-place cache update for user {user_id}")
+                    else:
+                        await self.invalidate_cache(user_id)
+                except Exception as cache_err:
+                    logger.warning(f"In-place cache update failed, falling back to invalidation: {cache_err}")
+                    await self.invalidate_cache(user_id)
+            else:
+                # Complex update (sub-tables changed), safe invalidation required to ensure consistency
+                await self.invalidate_cache(user_id)
+
             from services.analytics_service import AnalyticsService
             AnalyticsService.invalidate_user_cache(user_id)
 
@@ -560,39 +585,73 @@ class ProfileService:
     # ==================== Helper Methods ====================
     
     async def get_profile_completion_percentage(self, user_id: str) -> int:
-        """Calculate profile completion percentage"""
+        """Calculate profile completion percentage using cache or lightweight parallel fetch (v16.5.2)"""
         try:
-            profile = await self.get_profile(user_id)
-            if not profile:
+            # 1. Try Cache First (Big Win)
+            cache_key = f"{self.CACHE_PREFIX}{user_id}"
+            cached_container = await cache_service.get(cache_key)
+            if cached_container and 'data' in cached_container:
+                profile = cached_container['data'].get('profile')
+                if profile:
+                    return self._calculate_score(profile)
+
+            # 2. Lightweight DB Fallback
+            # Fetch scalar fields directly from profile table
+            p_res = await self.supabase.client.table('user_profiles')\
+                .select("id, full_name, email, phone, city, professional_summary, skills")\
+                .eq('user_id', user_id)\
+                .maybe_single()\
+                .execute()
+            
+            if not p_res.data:
                 return 0
             
-            score = 0
-            total = 100
+            profile = p_res.data
+            profile_id = profile['id']
             
-            # Basic info (40 points)
-            if profile.get('full_name'): score += 10
-            if profile.get('email'): score += 10
-            if profile.get('phone'): score += 5
-            if profile.get('city'): score += 5
-            if profile.get('professional_summary'): score += 10
+            # Parallel counts for relations to avoid N+1 or full graph overhead
+            exp_task = self.supabase.client.table('work_experiences').select('id', count='exact').eq('profile_id', profile_id).execute()
+            edu_task = self.supabase.client.table('educations').select('id', count='exact').eq('profile_id', profile_id).execute()
             
-            # Work experience (30 points)
-            if profile.get('work_experiences'):
-                score += min(30, len(profile['work_experiences']) * 15)
+            exp_res, edu_res = await asyncio.gather(exp_task, edu_task)
             
-            # Education (20 points)
-            if profile.get('educations'):
-                score += min(20, len(profile['educations']) * 10)
+            # Map counts to dummy arrays to reuse scoring logic
+            profile['work_experiences'] = [None] * (exp_res.count or 0)
+            profile['educations'] = [None] * (edu_res.count or 0)
             
-            # Skills (10 points)
-            if profile.get('skills') and len(profile['skills']) > 0:
-                score += 10
-            
-            return min(100, score)
+            return self._calculate_score(profile)
             
         except Exception as e:
             logger.error(f"Error calculating profile completion: {str(e)}")
             return 0
+
+    def _calculate_score(self, profile: Dict[str, Any]) -> int:
+        """Isolated scoring logic to support both cached and direct DB objects"""
+        score = 0
+        
+        # Basic info (40 points)
+        if profile.get('full_name'): score += 10
+        if profile.get('email'): score += 10
+        if profile.get('phone'): score += 5
+        if profile.get('city'): score += 5
+        if profile.get('professional_summary'): score += 10
+        
+        # Work experience (30 points)
+        work_exp = profile.get('work_experiences', [])
+        if work_exp:
+            score += min(30, len(work_exp) * 15)
+        
+        # Education (20 points)
+        edu = profile.get('educations', [])
+        if edu:
+            score += min(20, len(edu) * 10)
+        
+        # Skills (10 points)
+        skills = profile.get('skills', [])
+        if skills and len(skills) > 0:
+            score += 10
+            
+        return min(100, score)
 
     def _sanitize_date(self, date_str: Optional[str]) -> Optional[str]:
         """Convert YYYY-MM to YYYY-MM-DD for Postgres compatibility"""
