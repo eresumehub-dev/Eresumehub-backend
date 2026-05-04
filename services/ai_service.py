@@ -171,9 +171,10 @@ class AIService:
             
         models_to_try = [model_override] if model_override else [
             "llama-3.3-70b-versatile",
+            "llama-3.1-70b-versatile",
             "llama-3.1-8b-instant",
-            "mixtral-8x7b-32768",
-            "gemma2-9b-it"
+            "llama3-70b-8192",
+            "llama3-8b-8192"
         ]
         
         for model in models_to_try:
@@ -655,8 +656,23 @@ class AIService:
         }
         
         language_template_json = json.dumps(rag_data.get("language_template", {})) if rag_data else "{}"
-        knowledge_base_json = json.dumps(rag_data.get("knowledge_base", {})) if rag_data else "{}"
-        cv_structure_order = json.dumps(rag_data.get("knowledge_base", {}).get("cv_structure", {}).get("order", [])) if rag_data else "[]"
+        
+        # 🧬 v16.5.4: Adaptive Knowledge Base Truncation
+        # India KB is 48KB+, which causes 413 "Request too large" on Groq and massive token costs.
+        # We prioritize structure and ATS rules, then truncate the rest to ~15k chars.
+        kb_full = rag_data.get("knowledge_base", {}) if rag_data else {}
+        kb_essential = {
+            "country": kb_full.get("country"),
+            "ats_optimization": kb_full.get("ats_optimization"),
+            "cv_structure": kb_full.get("cv_structure")
+        }
+        knowledge_base_json = json.dumps(kb_essential)
+        
+        # If still too large or we need other parts, we take a slice of the full string as fallback
+        if len(knowledge_base_json) < 5000 and kb_full:
+             knowledge_base_json = json.dumps(kb_full)[:15000]
+             
+        cv_structure_order = json.dumps(kb_full.get("cv_structure", {}).get("order", []))
         
         # 🧪 Phase 3.1: Hybrid Adaptive Prompting
         compliance_injection = ""
