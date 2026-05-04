@@ -329,10 +329,20 @@ class ResumePipeline:
             "score": 0 
         }
 
-        # 🖼️ v16.5.10: Remote Image Resolution (Fix for '?' placeholder)
-        # WeasyPrint often fails to fetch remote images due to CORS/Bot-Protection.
-        # We fetch them in the backend and embed as Base64.
-        pic_url = enriched_data.get("profile_pic_url") or user_data.get("photo_url")
+        # 🖼️ v16.6.1: Robust Image & Address Preservation
+        # Fix: Check for multiple possible photo keys (capitalization matters in JS/Python bridges)
+        pic_url = (
+            enriched_data.get("profile_pic_url") or 
+            user_data.get("photo_url") or 
+            user_data.get("Photo") or 
+            user_data.get("photoURL")
+        )
+        
+        # Preserve Full Address from profile if AI truncated it
+        profile_address = user_data.get("address") or user_data.get("location")
+        if profile_address and (not enriched_data.get("address") or len(enriched_data["address"]) < len(profile_address)):
+            enriched_data["address"] = profile_address
+
         if pic_url and "http" in pic_url and not enriched_data.get("profile_pic_base64"):
             try:
                 import httpx

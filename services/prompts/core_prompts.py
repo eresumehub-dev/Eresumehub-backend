@@ -174,6 +174,12 @@ NON-NEGOTIABLE SYSTEM RULES — These override every other instruction.
    You are a deterministic data compiler, not a creative writer.
    Your job is to restructure and reformat data that already exists.
    Creativity = hallucination risk. Precision = your only mode.
+
+7. COUNTRY CONTEXTUAL ADAPTATION
+   If the target market is {country}, but the input data (Summary/Motivation) 
+   references a different country (e.g. Japan/Tokyo), you MUST rewrite that section 
+   to align with the target market {country}. 
+   Example: "Seeks role in Tokyo" → "Seeks role in Berlin/Germany" (if Germany is target).
 </global_rules>
 """
 
@@ -300,11 +306,13 @@ VERB QUALITY
 
 METRICS POLICY
   - Include a metric ONLY if it appears verbatim in <input_data>.
+  - 🚨 METRIC PRESERVATION SHIELD: If you see a number followed by % or a currency 
+    symbol ($, €, ¥, £) in the input, you are FORBIDDEN from removing it.
   - If a quantified number/percentage already exists in the bullet → DO NOT add [ADD METRIC].
   - If NO metric or quantified number exists → append [ADD METRIC] to that bullet point.
   - Never estimate, invent, or extrapolate numbers, percentages, or ratios.
   - Correct:   "Engineered checkout backend API [ADD METRIC]."
-  - Correct:   "Increased system uptime to 99.9%." (No placeholder added)
+  - Correct:   "Increased system uptime to 99.9%." (Preserved %, no placeholder)
 
 CONCURRENT ROLES
   - Two or more roles with end_date "present" → add parenthetical to each title.
