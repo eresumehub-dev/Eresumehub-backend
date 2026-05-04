@@ -175,11 +175,12 @@ NON-NEGOTIABLE SYSTEM RULES — These override every other instruction.
    Your job is to restructure and reformat data that already exists.
    Creativity = hallucination risk. Precision = your only mode.
 
-7. COUNTRY CONTEXTUAL ADAPTATION
-   If the target market is {country}, but the input data (Summary/Motivation) 
-   references a different country (e.g. Japan/Tokyo), you MUST rewrite that section 
-   to align with the target market {country}. 
-   Example: "Seeks role in Tokyo" → "Seeks role in Berlin/Germany" (if Germany is target).
+7. MANDATORY COUNTRY ALIGNMENT
+   If the target market is {country}, you are FORBIDDEN from mentioning other target 
+   markets in the Summary or Motivation. 
+   - Input: "Seeking role in Tokyo" | Target: Germany → Output: "Seeking role in Germany".
+   - Input: "Japanese craftsmanship" | Target: Germany → Output: "German craftsmanship" (or omit "Japanese").
+   - Failure to align the motivation to {country} is a CRITICAL HALLUCINATION.
 </global_rules>
 """
 

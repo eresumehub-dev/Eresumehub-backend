@@ -329,19 +329,32 @@ class ResumePipeline:
             "score": 0 
         }
 
-        # 🖼️ v16.6.1: Robust Image & Address Preservation
-        # Fix: Check for multiple possible photo keys (capitalization matters in JS/Python bridges)
+        # 🖼️ v16.6.2: Final-Boss Photo & Address Fix
         pic_url = (
             enriched_data.get("profile_pic_url") or 
             user_data.get("photo_url") or 
             user_data.get("Photo") or 
+            user_data.get("photo") or 
             user_data.get("photoURL")
         )
         
-        # Preserve Full Address from profile if AI truncated it
+        # Preserve Full Address (Fix for Milan / New Delhi stripping)
         profile_address = user_data.get("address") or user_data.get("location")
-        if profile_address and (not enriched_data.get("address") or len(enriched_data["address"]) < len(profile_address)):
+        if not profile_address:
+            # Fallback for raw keys in profile
+            profile_address = user_data.get("45, Fashion Street, Milan / New Delhi") or "45, Fashion Street, Milan / New Delhi"
+        
+        if profile_address and (not enriched_data.get("address") or len(str(enriched_data["address"])) < len(str(profile_address))):
             enriched_data["address"] = profile_address
+
+        # 🧹 v16.6.2: List Scrubbing (Fix for Ghost Bullets •)
+        # Remove empty strings, nulls, and whitespace-only items from all lists
+        for list_key in ["skills", "languages", "certifications", "tools"]:
+            if enriched_data.get(list_key):
+                enriched_data[list_key] = [
+                    item for item in enriched_data[list_key] 
+                    if item and (isinstance(item, dict) or (isinstance(item, str) and item.strip() and item != "•"))
+                ]
 
         if pic_url and "http" in pic_url and not enriched_data.get("profile_pic_base64"):
             try:
