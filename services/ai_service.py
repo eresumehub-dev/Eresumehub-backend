@@ -642,7 +642,11 @@ class AIService:
         )
         api_res = await self.call_model(prompt, temperature=0.1, max_tokens=1500, request_id=request_id)
         try:
-            data = parse_llm_response(api_res.get("content"))
+            result = parse_llm_response(api_res.get("content"))
+            if not result.get("status", {}).get("success", False):
+                raise Exception(result.get("status", {}).get("error_code", "ATS_ANALYSIS_FAILED"))
+            
+            data = result.get("data", {})
             data["score"] = int((semantic_score * 0.4) + (data.get("qualification_score", 50) * 0.6))
             data["semantic_score"] = round(semantic_score, 1)
             return data
@@ -677,7 +681,11 @@ class AIService:
         api_res = await self.call_api(prompt, temperature=0.0, max_tokens=3500, request_id=request_id)
         
         try:
-            raw_json = parse_llm_response(api_res)
+            result = parse_llm_response(api_res)
+            if not result.get("status", {}).get("success", False):
+                raise Exception(result.get("status", {}).get("error_code", "EXTRACTION_FAILED"))
+                
+            raw_json = result.get("data", {})
             
             # Map common legacy keys to Pydantic model keys
             mapped_json = copy.deepcopy(raw_json)
@@ -784,7 +792,14 @@ class AIService:
 
         try:
             content = api_res.get("content")
-            tailored = parse_llm_response(content)
+            result = parse_llm_response(content)
+            
+            if not result.get("status", {}).get("success", False):
+                error_code = result.get("status", {}).get("error_code", "GENERATION_FAILED")
+                logger.error(f"[{request_id}] AI Generation Failure (Model-reported): {error_code} - {result.get('status', {}).get('message')}")
+                return {"success": False, "error": error_code}
+                
+            tailored = result.get("data", {})
             
             # Defensive normalization: Ensure Pydantic types (v16.4.14)
             tailored["experience"] = self._ensure_list(tailored.get("experience"))
@@ -818,7 +833,13 @@ class AIService:
             
         try:
             content = api_res.get("content")
-            return parse_llm_response(content)
+            result = parse_llm_response(content)
+            
+            if not result.get("status", {}).get("success", False):
+                logger.error(f"[{request_id}] AI Correction Failure (Model-reported): {result.get('status', {}).get('error_code')}")
+                return json_payload # Fallback
+                
+            return result.get("data", {})
         except Exception as e:
             logger.error(f"[{request_id}] AI Correction Parse Failure: {e}")
             return json_payload
