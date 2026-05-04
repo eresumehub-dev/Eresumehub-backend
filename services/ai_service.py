@@ -21,8 +21,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 from configurations.countries import get_country_context, get_country_fallback_data
 from app_settings import Config
 from services.prompts.core_prompts import (
-    ATS_ANALYSIS_PROMPT, EXTRACTION_PROMPT, 
-    TAILOR_PROMPT, COMPLIANCE_FIX_PROMPT
+    get_prompt, build_compliance_block, parse_llm_response
 )
 
 load_dotenv()
@@ -634,7 +633,7 @@ class AIService:
             if vec_resume and vec_jd: semantic_score = self._cosine_similarity(vec_resume, vec_jd) * 100
         except Exception: pass
 
-        prompt = ATS_ANALYSIS_PROMPT.format(
+        prompt = get_prompt("ats_analysis").format(
             target_country=target_country,
             job_role=job_role,
             rag_context=rag_context_str,
@@ -643,7 +642,7 @@ class AIService:
         )
         api_res = await self.call_model(prompt, temperature=0.1, max_tokens=1500, request_id=request_id)
         try:
-            data = json.loads(self._clean_json_string(api_res.get("content")))
+            data = parse_llm_response(api_res.get("content"))
             data["score"] = int((semantic_score * 0.4) + (data.get("qualification_score", 50) * 0.6))
             data["semantic_score"] = round(semantic_score, 1)
             return data
@@ -670,7 +669,7 @@ class AIService:
             "skills": ["string"]
         }
         
-        prompt = EXTRACTION_PROMPT.format(
+        prompt = get_prompt("extraction").format(
             schema_json=json.dumps(extraction_schema),
             resume_text=resume_text[:12000]
         )
@@ -678,7 +677,7 @@ class AIService:
         api_res = await self.call_api(prompt, temperature=0.0, max_tokens=3500, request_id=request_id)
         
         try:
-            raw_json = json.loads(self._clean_json_string(api_res))
+            raw_json = parse_llm_response(api_res)
             
             # Map common legacy keys to Pydantic model keys
             mapped_json = copy.deepcopy(raw_json)
@@ -753,13 +752,15 @@ class AIService:
         cv_structure_order = json.dumps(kb_full.get("cv_structure", {}).get("order", []))
         
         # 🧪 Phase 3.1: Hybrid Adaptive Prompting
-        compliance_injection = ""
+        compliance_rules = ""
         if compliance_gap:
-             compliance_injection = f"\n        🚨 COMPLIANCE GAP (ADAPT REQUIRED):\n        The applicant profile is currently missing mandatory {country} fields: {', '.join(compliance_gap)}.\n        DO NOT hallucinate these values. Instead, ensure the professional summary and achievements are exceptionally strong and quantified to mitigate these missing requirements."
+             compliance_rules = f"\n        🚨 COMPLIANCE GAP (ADAPT REQUIRED):\n        The applicant profile is currently missing mandatory {country} fields: {', '.join(compliance_gap)}.\n        DO NOT hallucinate these values. Instead, ensure the professional summary and achievements are exceptionally strong and quantified to mitigate these missing requirements."
 
-        prompt = TAILOR_PROMPT.format(
+        compliance_injection = build_compliance_block(country, compliance_rules)
+
+        prompt = get_prompt("tailor").format(
             country=country,
-            compliance_injection=compliance_injection,
+            compliance_injection_block=compliance_injection,
             job_title=job_title,
             user_data_json=json.dumps(user_data),
             job_description=job_description[:1500],
@@ -783,8 +784,7 @@ class AIService:
 
         try:
             content = api_res.get("content")
-            clean_json = self._clean_json_string(content)
-            tailored = json.loads(clean_json)
+            tailored = parse_llm_response(content)
             
             # Defensive normalization: Ensure Pydantic types (v16.4.14)
             tailored["experience"] = self._ensure_list(tailored.get("experience"))
@@ -802,12 +802,13 @@ class AIService:
             logger.error(f"[{request_id}] AI Parse Failure: {e}. Content: {api_res.get('content')[:150]}")
             return {"success": False, "error": "PARSE_ERROR"}
 
-    async def enforce_compliance_correction(self, json_payload: Dict[str, Any], violations: List[str], country: str = "Germany", request_id: str = "correction") -> Dict[str, Any]:
+    async def enforce_compliance_correction(self, json_payload: Dict[str, Any], violations: List[str], country: str = "Germany", user_data: Dict[str, Any] = None, request_id: str = "correction") -> Dict[str, Any]:
         """Force AI to fix specific compliance violations in the generated JSON via FULL regeneration."""
-        prompt = COMPLIANCE_FIX_PROMPT.format(
+        prompt = get_prompt("compliance_fix").format(
             country=country,
             violations_list=chr(10).join(['- ' + v for v in violations]),
-            payload_json=json.dumps(json_payload)
+            payload_json=json.dumps(json_payload),
+            user_data_json=json.dumps(user_data or {})
         )
         
         api_res = await self.call_model(prompt, temperature=0.1, max_tokens=3000, request_id=request_id)
@@ -817,8 +818,7 @@ class AIService:
             
         try:
             content = api_res.get("content")
-            clean_json = self._clean_json_string(content)
-            return json.loads(clean_json)
+            return parse_llm_response(content)
         except Exception as e:
             logger.error(f"[{request_id}] AI Correction Parse Failure: {e}")
             return json_payload

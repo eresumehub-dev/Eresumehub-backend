@@ -261,7 +261,7 @@ class ResumePipeline:
         
         return violations
 
-    async def _step_validate_generated_output(self, gen_res: Dict[str, Any], country: str, rag_data: Dict[str, Any]):
+    async def _step_validate_generated_output(self, gen_res: Dict[str, Any], country: str, rag_data: Dict[str, Any], user_data: Dict[str, Any]):
         """Staff+ Compliance Enforcement: Two-pass Audit & Correction Loop."""
         await self._update_status("Market Compliance Audit", 60)
         
@@ -307,6 +307,7 @@ class ResumePipeline:
                 json_payload=resume_content,
                 violations=violations,
                 country=country,
+                user_data=user_data,
                 request_id=self.request_id
             )
             
@@ -473,7 +474,7 @@ class ResumePipeline:
             gen_res, job_title, rag_data = await self._step_generate_content(user_data, data, country)
             
             # Post-Generation Compliance Audit
-            gen_res = await self._step_validate_generated_output(gen_res, country, rag_data)
+            gen_res = await self._step_validate_generated_output(gen_res, country, rag_data, user_data)
             
             enriched_data, resume_content = await self._step_post_process(user_data, gen_res, country)
             pdf_bytes, enriched_data = await self._step_render_and_analyze(resume_content, enriched_data, job_title, country, data)
