@@ -82,20 +82,26 @@ GLOBAL_FORBIDDEN_PHRASES = [
 
 class AIService:
     def __init__(self):
-        # Gemini API (primary - free and reliable)
-        self.gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip('"').strip("'")
-        self.gemini_url = "https://generativelanguage.googleapis.com/v1beta"
-        
-        # Groq API (High Performance)
+        # API Keys from Config
+        self.gemini_api_key = Config.GEMINI_API_KEY
         self.groq_api_key = Config.GROQ_API_KEY
-        self.groq_url = "https://api.groq.com/openai/v1/chat/completions"
+        self.mistral_api_key = Config.MISTRAL_API_KEY
+        self.nvidia_api_key = Config.NVIDIA_API_KEY
+        self.cohere_api_key = Config.COHERE_API_KEY
+        self.deepseek_api_key = Config.DEEPSEEK_API_KEY
+        self.openrouter_api_key = Config.OPENROUTER_API_KEY
 
-        # OpenRouter (fallback)
-        self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY", "").strip('"').strip("'")
+        # Base URLs
+        self.gemini_url = "https://generativelanguage.googleapis.com/v1beta"
+        self.groq_url = "https://api.groq.com/openai/v1/chat/completions"
+        self.mistral_url = "https://api.mistral.ai/v1/chat/completions"
+        self.nvidia_url = "https://integrate.api.nvidia.com/v1/chat/completions"
+        self.cohere_url = "https://api.cohere.com/v1/chat"
+        self.deepseek_url = "https://api.deepseek.com/chat/completions"
         self.openrouter_url = "https://openrouter.ai/api/v1/chat/completions"
         
-        if not self.gemini_api_key and not self.openrouter_api_key and not self.groq_api_key:
-            logger.warning("No AI API keys configured. AI features will be limited.")
+        if not any([self.gemini_api_key, self.groq_api_key, self.mistral_api_key, self.openrouter_api_key]):
+            logger.warning("No Primary AI API keys configured. AI features will be limited.")
             
         self._client = None 
         # Circuit Breaker State
@@ -285,6 +291,70 @@ class AIService:
                 logger.error(f"Gemini non-transient error for {model_id}: {str(e)}")
         return None
 
+    async def _call_mistral(self, prompt: str, temperature: float = 0.7, max_tokens: int = 2000, model_override: Optional[str] = None) -> Optional[str]:
+        """Call Mistral API (Direct)"""
+        if not self.mistral_api_key: return None
+        model = model_override or "mistral-large-latest"
+        try:
+            logger.info(f"Targeting Mistral ({model})...")
+            response = await self.client.post(
+                self.mistral_url,
+                headers={"Authorization": f"Bearer {self.mistral_api_key}", "Content-Type": "application/json"},
+                json={"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": temperature, "max_tokens": max_tokens}
+            )
+            if response.status_code == 200:
+                return self._sanitize_ai_response(response.json()["choices"][0]["message"]["content"])
+        except Exception as e: logger.error(f"Mistral failure: {e}")
+        return None
+
+    async def _call_nvidia(self, prompt: str, temperature: float = 0.7, max_tokens: int = 2000, model_override: Optional[str] = None) -> Optional[str]:
+        """Call NVIDIA NIM API (Direct)"""
+        if not self.nvidia_api_key: return None
+        model = model_override or "meta/llama-3.1-70b-instruct"
+        try:
+            logger.info(f"Targeting NVIDIA NIM ({model})...")
+            response = await self.client.post(
+                self.nvidia_url,
+                headers={"Authorization": f"Bearer {self.nvidia_api_key}", "Content-Type": "application/json"},
+                json={"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": temperature, "max_tokens": max_tokens}
+            )
+            if response.status_code == 200:
+                return self._sanitize_ai_response(response.json()["choices"][0]["message"]["content"])
+        except Exception as e: logger.error(f"NVIDIA failure: {e}")
+        return None
+
+    async def _call_deepseek(self, prompt: str, temperature: float = 0.7, max_tokens: int = 2000, model_override: Optional[str] = None) -> Optional[str]:
+        """Call DeepSeek API (Direct)"""
+        if not self.deepseek_api_key: return None
+        model = model_override or "deepseek-chat"
+        try:
+            logger.info(f"Targeting DeepSeek ({model})...")
+            response = await self.client.post(
+                self.deepseek_url,
+                headers={"Authorization": f"Bearer {self.deepseek_api_key}", "Content-Type": "application/json"},
+                json={"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": temperature, "max_tokens": max_tokens}
+            )
+            if response.status_code == 200:
+                return self._sanitize_ai_response(response.json()["choices"][0]["message"]["content"])
+        except Exception as e: logger.error(f"DeepSeek failure: {e}")
+        return None
+
+    async def _call_cohere(self, prompt: str, temperature: float = 0.7, max_tokens: int = 2000, model_override: Optional[str] = None) -> Optional[str]:
+        """Call Cohere API (Direct)"""
+        if not self.cohere_api_key: return None
+        model = model_override or "command-r-plus"
+        try:
+            logger.info(f"Targeting Cohere ({model})...")
+            response = await self.client.post(
+                self.cohere_url,
+                headers={"Authorization": f"Bearer {self.cohere_api_key}", "Content-Type": "application/json"},
+                json={"model": model, "message": prompt, "temperature": temperature, "max_tokens": max_tokens}
+            )
+            if response.status_code == 200:
+                return self._sanitize_ai_response(response.json().get("text"))
+        except Exception as e: logger.error(f"Cohere failure: {e}")
+        return None
+
     async def _call_openrouter(self, prompt: str, temperature: float = 0.7, max_tokens: int = 2000, model_override: Optional[str] = None) -> Optional[str]:
         """Call OpenRouter API (fallback)"""
         if not self.openrouter_api_key:
@@ -368,6 +438,14 @@ class AIService:
                  result = await self._call_groq(prompt, temperature, max_tokens, model_override=p_model)
             elif p_name == "gemini":
                 result = await self._call_gemini(prompt, temperature, max_tokens, model_override=p_model)
+            elif p_name == "mistral":
+                result = await self._call_mistral(prompt, temperature, max_tokens, model_override=p_model)
+            elif p_name == "nvidia":
+                result = await self._call_nvidia(prompt, temperature, max_tokens, model_override=p_model)
+            elif p_name == "deepseek":
+                result = await self._call_deepseek(prompt, temperature, max_tokens, model_override=p_model)
+            elif p_name == "cohere":
+                result = await self._call_cohere(prompt, temperature, max_tokens, model_override=p_model)
             elif p_name == "openrouter":
                 result = await self._call_openrouter(prompt, temperature, max_tokens, model_override=p_model)
             

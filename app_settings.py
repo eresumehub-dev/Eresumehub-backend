@@ -9,8 +9,15 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 class Config:
-    OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "").strip('"').strip("'")
+    # LLM API Keys
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "").strip('"').strip("'")
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "").strip('"').strip("'")
+    MISTRAL_API_KEY: str = os.getenv("MISTRAL_API_KEY", "").strip('"').strip("'")
+    NVIDIA_API_KEY: str = os.getenv("NVIDIA_API_KEY", "").strip('"').strip("'")
+    COHERE_API_KEY: str = os.getenv("COHERE_API_KEY", "").strip('"').strip("'")
+    DEEPSEEK_API_KEY: str = os.getenv("DEEPSEEK_API_KEY", "").strip('"').strip("'")
+    OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "").strip('"').strip("'")
+    
     RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "").strip('"').strip("'")
     SUPPORT_EMAIL: str = os.getenv("SUPPORT_EMAIL", "support@eresumehub.com")
     
@@ -22,7 +29,7 @@ class Config:
     AI_REQUEST_TIMEOUT: int = int(os.getenv("AI_REQUEST_TIMEOUT", 120))
     DEFAULT_MODEL: str = "mistralai/mistral-7b-instruct:free"
     FALLBACK_MODEL: str = os.getenv("FALLBACK_MODEL", "gpt-4")
-    AI_PROVIDER_ORDER: str = os.getenv("AI_PROVIDER_ORDER", "groq,gemini,openrouter")
+    AI_PROVIDER_ORDER: str = os.getenv("AI_PROVIDER_ORDER", "gemini,groq,mistral,nvidia,deepseek,cohere,openrouter")
     AI_TEST_MODE: bool = os.getenv("AI_TEST_MODE", "False").lower() == "true"
     AI_TEST_PROVIDER: str = os.getenv("AI_TEST_PROVIDER", "openrouter:mistral-7b")
     RAG_SCHEMAS_DIR: str = "rag_schemas"
@@ -58,8 +65,11 @@ class Config:
     def validate(cls):
         if not cls.API_SECRET_KEY:
             raise RuntimeError("API_SECRET_KEY must be set in environment variables")
-        if not cls.OPENROUTER_API_KEY:
-            logger.warning("OPENROUTER_API_KEY not configured - AI features will be limited")
+        
+        active_keys = [cls.GEMINI_API_KEY, cls.GROQ_API_KEY, cls.MISTRAL_API_KEY, cls.OPENROUTER_API_KEY]
+        if not any(active_keys):
+            logger.warning("No Primary AI API keys configured (Gemini, Groq, Mistral) - AI features will fail.")
+            
         if not cls.SUPABASE_URL or not cls.SUPABASE_KEY:
             logger.warning("SUPABASE not configured - Supabase features will not work")
         if cls.AI_TEST_MODE:
