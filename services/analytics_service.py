@@ -26,37 +26,38 @@ class AnalyticsService:
         logger.info(f"ANALYTICS Cache Invalidation Enqueued for user {user_id}")
 
     @staticmethod
-    def enqueue_refresh(user_id: str):
+    def enqueue_refresh(user_id: str, background_tasks: Optional[Any] = None):
         """
         Deterministic Background Refresh with Throttling (v15.2.0)
         Prevents job 'spamming' (e.g. 1 refresh per 60s per user).
+        Ensures the 'Heavy' pandas computation never blocks the HTTP response.
         """
         from services.cache_service import cache_service
         lock_key = f"refresh_lock_analytics:{user_id}"
         
-        # 1. Attempt to acquire the 'recompute lock' (60s throttle)
-        # If the key exists, we SKIP the enqueue to save CPU/Memory
-        # v16.4.5 Async Alignment
-        async def _check_and_refresh():
+        async def _run_refresh():
+            # 1. Attempt to acquire the 'recompute lock' (60s throttle)
             if not await cache_service.set_nx(lock_key, "locked", ttl_seconds=60):
-                logger.info(f"ANALYTICS Refresh Skipped: User {user_id} is within the 60s throttle window.")
+                logger.info(f"ANALYTICS Refresh Skipped: User {user_id} is within throttle window.")
                 return
 
-            # 2. Fire-and-forget the heavy lift
+            # 2. Perform the heavy lift
             from services.supabase_service import supabase_service
             service = AnalyticsService(supabase_service)
-            # Create task to handle the actual refresh
-            asyncio.create_task(service.refresh_user_analytics_cache(user_id))
-            logger.info(f"ANALYTICS Refresh Task Dispatched for user {user_id}")
+            await service.refresh_user_analytics_cache(user_id)
+            logger.info(f"ANALYTICS Background Refresh Completed for user {user_id}")
 
-        # Since enqueue_refresh is a staticmethod and sometimes called from sync code,
-        # we check the event loop state.
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(_check_and_refresh())
-        except RuntimeError:
-            # Fallback if no loop (unlikely in FastAPI but good for scripts)
-            asyncio.run(_check_and_refresh())
+        if background_tasks:
+            background_tasks.add_task(_run_refresh)
+            logger.info(f"ANALYTICS Refresh Enqueued via BackgroundTasks for user {user_id}")
+        else:
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(_run_refresh())
+                logger.info(f"ANALYTICS Refresh Enqueued via asyncio.create_task for user {user_id}")
+            except RuntimeError:
+                # Fallback for non-async contexts
+                asyncio.run(_run_refresh())
 
     @classmethod
     def clear_full_analytics_cache(cls):
@@ -329,7 +330,7 @@ class AnalyticsService:
             
         return ""
 
-    async def get_dashboard_analytics(self, user_id: str) -> Dict[str, Any]:
+    async def get_dashboard_analytics(self, user_id: str, background_tasks: Optional[Any] = None) -> Dict[str, Any]:
         """
         [STRICT V16.0.0] Canonical Read-Only: Fetches precomputed analytics from the cache table.
         Standardized on auth_user_id. O(1) DB Read.
@@ -344,14 +345,16 @@ class AnalyticsService:
                 return response.data[0]['dashboard_json']
             
             # PRO-GRADE: Return empty/stale state instead of blocking.
-            logger.info(f"Analytics cache MISS for user {user_id}. Returning default state.")
+            # Trigger background refresh (v15.2.0 Alignment)
+            logger.info(f"Analytics cache MISS for user {user_id}. triggering background refresh.")
+            self.enqueue_refresh(user_id, background_tasks)
             return self._get_empty_analytics(0)
             
         except Exception as e:
             logger.error(f"Error fetching analytics cache: {e}")
             return self._get_empty_analytics(0)
 
-    async def get_active_nudges(self, user_id: str) -> List[Dict[str, Any]]:
+    async def get_active_nudges(self, user_id: str, background_tasks: Optional[Any] = None) -> List[Dict[str, Any]]:
         """
         Public Entry Point: Fetches nudges by processing cached analytics.
         If cache is empty, returns [] but triggers a background refresh.
@@ -361,7 +364,7 @@ class AnalyticsService:
         # Cold Cache Detection (OR branch for safety)
         if not analytics.get('resume_performance') or not analytics.get('summary', {}).get('total_views'):
             logger.warning(f"Nudge request on cold/partial cache for {user_id}. triggering refresh.")
-            self.enqueue_refresh(user_id)
+            self.enqueue_refresh(user_id, background_tasks)
             return []
 
         return await self.get_active_nudges_from_data(analytics, user_id)

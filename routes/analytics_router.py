@@ -95,11 +95,11 @@ async def view_heartbeat(view_id: str, data: Dict[str, Any] = Body(...)):
 from utils.auth_deps import get_current_user_id
 
 @router.get("/dashboard")
-async def get_dashboard_stats(request: Request, user_id: str = Depends(get_current_user_id)):
+async def get_dashboard_stats(request: Request, background_tasks: BackgroundTasks, user_id: str = Depends(get_current_user_id)):
     """Get aggregated analytics from the Intelligence Engine (V12)"""
     try:
         analytics_service = request.app.state.analytics_service
-        stats = await analytics_service.get_dashboard_analytics(user_id)
+        stats = await analytics_service.get_dashboard_analytics(user_id, background_tasks)
         return {"success": True, "data": stats}
     except Exception as e:
         logger.error(f"Dashboard stats failed: {e}")
@@ -130,11 +130,11 @@ async def log_download(request: Request, background_tasks: BackgroundTasks, down
         return {"success": False, "error": "Internal server error"}
 
 @router.get("/nudges")
-async def get_active_nudges(request: Request, user_id: str = Depends(get_current_user_id)):
+async def get_active_nudges(request: Request, background_tasks: BackgroundTasks, user_id: str = Depends(get_current_user_id)):
     """Fetch prioritized, confidence-scored nudges (v14.0.0)"""
     try:
         analytics_service = request.app.state.analytics_service
-        nudges = await analytics_service.get_active_nudges(user_id)
+        nudges = await analytics_service.get_active_nudges(user_id, background_tasks)
         return {"success": True, "data": nudges}
     except Exception as e:
         logger.error(f"Nudge Fetch Error: {e}")

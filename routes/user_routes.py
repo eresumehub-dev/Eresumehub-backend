@@ -15,7 +15,8 @@ profile_service = ProfileService(supabase_service)
 async def get_user_dashboard_bootstrap(user_id: str = Depends(get_current_user_id)):
     """
     The 'Golden Bootstrap' Endpoint (v16.2.0 Alignment)
-    Gather Profile, Analytics, and Resumes keyed to the Auth UUID ID.
+    Gather Profile and Resumes keyed to the Auth UUID ID.
+    EXCLUDES Analytics to prevent UI blocking during heavy computation.
     """
     try:
         # Performance Tier: Parallel Fetching

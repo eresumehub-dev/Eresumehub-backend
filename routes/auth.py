@@ -1,6 +1,6 @@
 # routers/auth.py
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, BackgroundTasks
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 import logging
@@ -88,14 +88,19 @@ async def signup(body: SignupRequest):
 # LOGIN
 # -----------------------------
 @router.post("/login")
-async def login(body: LoginRequest):
+async def login(body: LoginRequest, background_tasks: BackgroundTasks):
     try:
+        from services.analytics_service import AnalyticsService
         resp = await supabase.auth.sign_in_with_password(
             {"email": body.email, "password": body.password}
         )
 
         if resp.session is None:
             raise HTTPException(status_code=401, detail="Invalid login")
+
+        # Proactive Analytics Refresh (v15.2.0)
+        # Warm up the cache immediately upon login so the dashboard is ready.
+        AnalyticsService.enqueue_refresh(resp.user.id, background_tasks)
 
         return {
             "success": True,

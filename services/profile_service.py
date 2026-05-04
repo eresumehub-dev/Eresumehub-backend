@@ -16,6 +16,7 @@ class ProfileService:
     # Redis Cache Keys (v15.0.0)
     CACHE_PREFIX = "boot_fast:"
     CACHE_TTL = 900 # 15 minutes
+    HEADER_CACHE_PREFIX = "prof_head:"
 
     def __init__(self, supabase_service):
         self.supabase = supabase_service
@@ -24,8 +25,11 @@ class ProfileService:
     async def invalidate_cache(cls, user_id: str):
         """Standard Cache Busting: Clear Redis (v16.0.0)"""
         # Canonical ID is guaranteed to be passed here from modern routers
-        await cache_service.delete(f"{cls.CACHE_PREFIX}{user_id}")
-        logger.info(f"BOOTSTRAP-FAST Cache Busted for user {user_id}")
+        await asyncio.gather(
+            cache_service.delete(f"{cls.CACHE_PREFIX}{user_id}"),
+            cache_service.delete(f"{cls.HEADER_CACHE_PREFIX}{user_id}")
+        )
+        logger.info(f"BOOTSTRAP & HEADER Cache Busted for user {user_id}")
 
     # ==================== Profile CRUD ====================
     
@@ -96,7 +100,14 @@ class ProfileService:
         Payload size target: <2KB.
         """
         try:
-            # Parallel fetch of profile and username for dashboard context (v16.5.2)
+            # 1. Redis Cache Hit Attempt (v16.5.6 Optimization)
+            cache_key = f"{self.HEADER_CACHE_PREFIX}{user_id}"
+            cached_data = await cache_service.get(cache_key)
+            if cached_data:
+                logger.info(f"HEADER Cache Hit for user {user_id}")
+                return cached_data
+
+            # 2. Parallel fetch of profile and username for dashboard context (v16.5.2)
             profile_task = self.supabase.client.table('user_profiles')\
                 .select("id, user_id, full_name, professional_summary, photo_url, city, country")\
                 .eq('user_id', user_id)\
@@ -123,6 +134,9 @@ class ProfileService:
                 "work_experiences": [], "educations": [], "projects": [], 
                 "certifications": [], "extras": {}
             })
+
+            # 3. Save to Redis before returning
+            await cache_service.set(cache_key, profile, ttl_seconds=self.CACHE_TTL)
             return profile
         except Exception as e:
             import traceback
@@ -175,11 +189,13 @@ class ProfileService:
 
     async def _recompute_and_cache_bootstrap(self, user_id: str, soft_ttl: int, hard_ttl: int) -> Dict[str, Any]:
         """Computes the full bootstrap payload and saves to Redis with SWR metadata (v15.2.0)"""
+        lock_key = f"recompute_lock:{user_id}"
         try:
             from services.resume_service import ResumeService
             resume_service = ResumeService(self.supabase)
             
             # 1. Parallel Fetch (Header & Resumes)
+            # Audit Note: Keeping this as a 2-way gather to preserve the Header Cache hit-path (v16.5.6)
             results = await asyncio.gather(
                 self.get_profile_header(user_id),
                 self.supabase.get_user_resumes(user_id)
@@ -204,8 +220,12 @@ class ProfileService:
             
             return payload
         except Exception as e:
-            logger.error(f"Recompute Failure for user {user_id}: {e}")
+            logger.error(f"Critical Failure in Bootstrap Recompute: {e}")
             return {"exists": False, "profile": {}, "resumes": []}
+        finally:
+            # CLEANUP: Always release the lock so the next stale request can trigger a refresh (v16.5.6 Audit Fix)
+            await cache_service.delete(lock_key)
+            logger.info(f"SWR Lock Released for user {user_id}")
     
     async def create_or_update_profile(self, user_id: str, profile_data: Dict[str, Any], is_ai_import: bool = False) -> Dict[str, Any]:
         """Create or update user profile using canonical ID (v16.0.0)"""
