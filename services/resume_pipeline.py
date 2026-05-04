@@ -224,42 +224,37 @@ class ResumePipeline:
             
         return generation_result, job_title, rag_data
 
-    def _audit_compliance(self, resume_content: Dict[str, Any], country: str) -> List[str]:
+    def _audit_compliance(self, resume_content: Dict[str, Any], country: str, user_data: Dict[str, Any] = None) -> List[str]:
         """Internal Helper: Programmatic audit of the generated content."""
+        from utils.ai_validator import run_diff_check, run_verb_check, run_metric_check
+        
         violations = []
         c_lower = country.lower()
         
-        # 1. Metrics Check (Strict Regex with word boundaries)
-        # Allows for: 5%, 50+, $500, 5,000, 5.5, five (numeric or symbol)
-        metric_pattern = re.compile(r'\d+|%|\$|million|billion|thousand', re.IGNORECASE)
-        experience = resume_content.get("experience", resume_content.get("work_experiences", []))
+        # 1. Banned Verbs Check (Deterministic Regex)
+        verb_violations = run_verb_check(resume_content)
+        for v in verb_violations:
+            violations.append(f"[{v.code}] at {v.field}: {v.description}")
+            
+        # 2. Metric Placeholder Check
+        metric_violations = run_metric_check(resume_content)
+        for v in metric_violations:
+            violations.append(f"[{v.code}] at {v.field}: {v.description}")
+            
+        # 3. Diff Check (Hallucination Detection) - THE MOAT
+        if user_data:
+            diff_violations = run_diff_check(resume_content, user_data)
+            for v in diff_violations:
+                violations.append(f"[{v.code}] at {v.field}: {v.description}")
         
-        for exp in experience:
-            bullets = exp.get("achievements", [])
-            if isinstance(bullets, str): bullets = [bullets]
-            for bullet in bullets:
-                if not metric_pattern.search(str(bullet)):
-                    violations.append(f"Metric missing in experience: {exp.get('job_title')} - '{bullet[:40]}...'")
-        
-        # 2. Weak Verbs Check (Regex with word boundaries for precision)
-        weak_verbs = ["helped", "contributing", "assisted", "participated", "involved"]
-        verb_pattern = re.compile(r'\b(' + '|'.join(weak_verbs) + r')\b', re.IGNORECASE)
-        
-        for exp in experience:
-            bullets = exp.get("achievements", [])
-            if isinstance(bullets, str): bullets = [bullets]
-            for bullet in bullets:
-                if verb_pattern.search(str(bullet)):
-                    # Extract the matching verb for clarity (v16.4.17)
-                    match = verb_pattern.search(str(bullet))
-                    violations.append(f"Weak verb '{match.group(0)}' found in: '{bullet[:40]}...'")
-
-        # 3. Mandatory Sections (Germany) - Normalized casing check
-        if c_lower == "germany":
+        # 4. Mandatory Sections (Germany) - Legacy check
+        # Only flag if user_data actually had languages but the AI dropped them.
+        if c_lower == "germany" and user_data and user_data.get("languages"):
             if not resume_content.get("languages") or len(resume_content.get("languages", [])) == 0:
-                violations.append("Mandatory section 'Languages' missing for Germany.")
+                violations.append("Mandatory section 'Languages' missing for Germany, but present in input data.")
         
         return violations
+
 
     async def _step_validate_generated_output(self, gen_res: Dict[str, Any], country: str, rag_data: Dict[str, Any], user_data: Dict[str, Any]):
         """Staff+ Compliance Enforcement: Two-pass Audit & Correction Loop."""
@@ -273,7 +268,7 @@ class ResumePipeline:
         
         while current_pass <= max_passes:
             resume_content = gen_res.get("resume_content", {})
-            violations = self._audit_compliance(resume_content, country)
+            violations = self._audit_compliance(resume_content, country, user_data)
             
             # DEBUG: Log results per pass
             print(f"[{self.request_id}] 🔍 PASS {current_pass} | Violations found: {len(violations)}")
