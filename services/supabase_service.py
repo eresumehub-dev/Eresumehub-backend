@@ -264,10 +264,10 @@ class SupabaseService:
             clean_slug = slug.strip().lower()
             logger.info(f"Public lookup for username: '{clean_username}', slug: '{clean_slug}'")
             
-            # 1. Find the user ID for this username (case-insensitive)
+            # 1. Find the auth_user_id for this username (case-insensitive)
             # Use 'maybe_single' or check length to avoid exception if not found
             user_response = await self.client.table("users")\
-                .select("id, username")\
+                .select("auth_user_id, username")\
                 .ilike("username", clean_username)\
                 .execute()
             
@@ -275,14 +275,14 @@ class SupabaseService:
                 logger.warning(f"Public lookup failed: User '{clean_username}' not found")
                 return None
                 
-            user_id = user_response.data[0]["id"]
+            user_auth_id = user_response.data[0]["auth_user_id"]
             actual_username = user_response.data[0]["username"]
-            logger.info(f"User found: {actual_username} (ID: {user_id})")
+            logger.info(f"User found: {actual_username} (Auth ID: {user_auth_id})")
             
-            # 2. Get the resume for this user ID and slug (case-insensitive)
+            # 2. Get the resume for this user Auth ID and slug (case-insensitive)
             resume_response = await self.client.table("resumes")\
                 .select("*")\
-                .eq("user_id", user_id)\
+                .eq("user_id", user_auth_id)\
                 .ilike("slug", clean_slug)\
                 .is_("deleted_at", "null")\
                 .execute()
@@ -321,14 +321,19 @@ class SupabaseService:
             logger.error(f"Error updating resume: {str(e)}")
             raise
     
-    async def delete_resume(self, resume_id: str) -> bool:
-        """Soft delete resume"""
+    async def delete_resume(self, resume_id: str, user_id: str) -> bool:
+        """Soft delete resume with ownership validation (Atomic)."""
         try:
             response = await self.client.table("resumes")\
-                .update({"deleted_at": datetime.utcnow().isoformat()})\
+                .update({"deleted_at": datetime.now(timezone.utc).isoformat()})\
                 .eq("id", resume_id)\
+                .eq("user_id", user_id)\
                 .execute()
             
+            if not response.data:
+                logger.warning(f"Atomic Delete Failed: Resume {resume_id} not found or doesn't belong to user {user_id}")
+                return False
+
             logger.info(f"Resume deleted: {resume_id}")
             return True
             

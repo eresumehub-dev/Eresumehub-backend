@@ -277,28 +277,36 @@ class ResumeService:
             logger.error(f"Failed to archive resume: {str(e)}")
             raise RuntimeError(f"Archiving failed: {str(e)}")
     
-    async def delete_resume(self, resume_id: str) -> bool:
+    async def delete_resume(self, resume_id: str, user_id: str) -> bool:
         """
-        Soft delete a resume via Supabase service
+        Soft delete a resume via Supabase service with distributed locking (v16.5.10).
+        Ensures cache consistency during concurrent deletes/refreshes.
         """
+        from services.cache_service import cache_service
+        lock_key = f"recompute_lock:{user_id}"
+        
         try:
-            # 1. Fetch user_id for cache busting (v10.0.0)
-            resume = await supabase_service.get_resume(resume_id)
-            user_id = resume.get("user_id") if resume else None
+            # 1. Acquire Recompute Lock (Blocking for up to 5s if another recompute is running)
+            # This prevents a background recompute from 'saving' the resume back to cache
+            # if it fetches from DB just before the delete commits.
+            await cache_service.set(lock_key, "locked_by_delete", ttl_seconds=10)
 
-            # 2. Perform soft delete
-            success = await supabase_service.delete_resume(resume_id)
+            # 2. Perform atomic soft delete
+            success = await supabase_service.delete_resume(resume_id, user_id)
 
             # 3. Cache Invalidation Burst (v10.0.0)
-            if success and user_id:
+            if success:
                 await ProfileService.invalidate_cache(user_id)
                 AnalyticsService.invalidate_user_cache(user_id)
 
-            logger.info(f"Resume {resume_id} deleted successfully")
+            logger.info(f"Resume {resume_id} deleted successfully for user {user_id}")
             return success
         except Exception as e:
             logger.error(f"Failed to delete resume: {str(e)}")
             raise RuntimeError(f"Deletion failed: {str(e)}")
+        finally:
+            # 4. Release Lock
+            await cache_service.delete(lock_key)
     
     async def restore_resume(self, resume_id: str) -> bool:
         """

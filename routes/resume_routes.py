@@ -215,16 +215,15 @@ async def get_public_resume(username: str, slug: str):
 
 @router.delete("/resumes/{resume_id}")
 async def delete_resume_route(resume_id: str, user_id: str = Depends(get_current_user_id)):
-    """Soft delete a resume with ownership validation."""
+    """Soft delete a resume with atomic ownership validation and cache locking."""
     try:
-        # 1. Ownership validation
-        resume = await supabase_service.get_resume(resume_id)
-        if not resume or resume.get("user_id") != user_id:
-            raise HTTPException(status_code=403, detail="Unauthorized access to this resume")
-
-        # 2. Perform delete
-        success = await resume_service.delete_resume(resume_id)
-        return {"success": success}
+        # 1. Perform atomic delete (ownership is verified inside the query)
+        success = await resume_service.delete_resume(resume_id, user_id)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Resume not found or unauthorized")
+            
+        return {"success": True}
     except HTTPException:
         raise
     except Exception as e:
