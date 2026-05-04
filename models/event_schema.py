@@ -42,7 +42,9 @@ class StandardEvent(BaseModel):
             "engagement_classified",
             "generation_started",
             "generation_failed",
-            "generation_succeeded"
+            "generation_succeeded",
+            "content_interaction",
+            "share_link_copy"
         ]
         if v not in allowed:
             logger.warning(f"Unknown event name received: '{v}'. Consider adding to allowed list.")

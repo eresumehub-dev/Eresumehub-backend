@@ -434,8 +434,6 @@ class SupabaseService:
                 "device_type": view_data.get("device_type"),
                 "browser": view_data.get("browser"),
                 "referrer": view_data.get("referrer"),
-                "screen_size": view_data.get("screen_size"), # New behavioral signal (v11.0.0)
-                "max_scroll_depth": view_data.get("max_scroll_depth", 0), # New behavioral signal (v11.0.0)
                 "utm_source": view_data.get("utm_source"),
                 "utm_medium": view_data.get("utm_medium"),
                 "utm_campaign": view_data.get("utm_campaign"),
@@ -613,30 +611,44 @@ class SupabaseService:
     async def get_resume_signed_url(self, user_id: str, resume_id: str, expires_in: int = 60) -> str:
         """Generate a temporary signed URL for zero-memory direct download (Staff+ Optimized)."""
         try:
-            # Construct path: resumes/{user_id}/{resume_id}.pdf
-            # Note: The prompt indicated the storage path is f"{user_id}/{resume_id}/{filename}" 
-            # in upload_resume_pdf. Let's find the current filename if possible or assume default.
-            
             # 1. Fetch resume to get the filename/slug used during upload
             resume = await self.get_resume(resume_id)
             if not resume:
-                raise ValueError("Resume not found")
+                raise ValueError(f"Resume {resume_id} not found in database")
                 
-            filename = f"{resume.get('slug')}.pdf"
-            path = f"{user_id}/{resume_id}/{filename}"
+            # v16.5.12: Staff+ Resilient Path Resolution
+            # Try to extract path from stored pdf_url to ensure we match the actual upload location
+            pdf_url = resume.get("pdf_url", "")
+            path = None
             
+            if pdf_url and "resumes-pdf/" in pdf_url:
+                # Extract everything after the bucket name
+                path = pdf_url.split("resumes-pdf/")[-1].split("?")[0]
+                logger.info(f"Resolved storage path from DB url: {path}")
+            
+            if not path:
+                filename = f"{resume.get('slug')}.pdf"
+                path = f"{user_id}/{resume_id}/{filename}"
+                logger.info(f"Fallback: Constructed storage path: {path}")
+
             # 2. Create signed URL (60s is plenty for a browser to start the stream)
+            logger.info(f"Requesting signed URL for bucket: resumes-pdf, path: {path}")
             response = await self.client.storage.from_("resumes-pdf").create_signed_url(path, expires_in)
             
-            # The new SDK returns a dict with 'signedURL' (or equivalent)
-            if isinstance(response, dict) and "signedURL" in response:
-                return response["signedURL"]
+            # Log the response structure to debug 404s
+            logger.info(f"Storage service response: {response}")
+
+            if isinstance(response, dict):
+                if "signedURL" in response:
+                    return response["signedURL"]
+                if "error" in response:
+                    logger.error(f"Storage error for {path}: {response['error']}")
+                    raise ValueError(f"Storage error: {response['error']}")
                 
-            # Fallback for different SDK versions
             return getattr(response, "signed_url", str(response))
             
         except Exception as e:
-            logger.error(f"Error creating signed URL for {resume_id}: {e}")
+            logger.error(f"Error creating signed URL for {resume_id} (Path: {path if 'path' in locals() else 'unknown'}): {e}")
             raise
     
     async def upload_thumbnail(self, user_id: str, resume_id: str, image_data: bytes, filename: str) -> str:
