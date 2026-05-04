@@ -223,7 +223,7 @@ from routes.analytics_router import router as analytics_router
 from routes.system_routes import router as system_router
 from routes.user_routes import router as user_router
 from routes.ai_routes import router as ai_router
-from utils.auth_deps import get_current_user_id
+from utils.auth_deps import get_current_user_id, get_optional_user_id
 
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(resume_router)
@@ -272,31 +272,42 @@ async def download_resume_pdf_proxied(
     request: Request,
     resume_id: str, 
     background_tasks: BackgroundTasks,
-    user_id: str = Depends(get_current_user_id)
+    user_id: Optional[str] = Depends(get_optional_user_id)
 ):
-    """Staff+ Zero-Memory Secure PDF Delivery via Signed URL Redirect."""
+    """Staff+ Zero-Memory Secure PDF Delivery via Signed URL Redirect (Public Access Support)."""
     try:
-        # 1. Ownership validation
+        # 1. Fetch resume metadata
         resume = await supabase_service.get_resume(resume_id)
-        if not resume or resume.get("user_id") != user_id:
+        if not resume:
+            raise HTTPException(status_code=404, detail="Resume not found")
+            
+        # 2. Ownership & Visibility Validation
+        is_owner = (user_id is not None and resume.get("user_id") == user_id)
+        is_public = resume.get("visibility") in ["public", "unlisted"]
+        
+        if not (is_owner or is_public):
             raise HTTPException(status_code=403, detail="Unauthorized access to this resume")
 
-        # 2. Log in background to prevent event-loop-blocking or request-teardown dropping
+        # 3. Log in background to prevent event-loop-blocking or request-teardown dropping
         background_tasks.add_task(
             supabase_service.log_resume_download, 
             resume_id, 
             {
                 "visitor_ip": request.client.host if request.client else "127.0.0.1",
-                "request_id": getattr(request.state, "request_id", "unknown")
+                "request_id": getattr(request.state, "request_id", "unknown"),
+                "is_public_view": not is_owner
             }
         )
         
-        # 3. Create signed URL for zero-memory direct download
-        # This bypasses the API server RAM entirely!
-        signed_url = await supabase_service.get_resume_signed_url(user_id, resume_id)
+        # 4. Create signed URL for zero-memory direct download (Using Service Role for Public Bypass)
+        # Pass the owner's ID to fetch the file from their storage bucket
+        resume_owner_id = resume.get("user_id")
+        signed_url = await supabase_service.get_resume_signed_url(resume_owner_id, resume_id)
         
         return RedirectResponse(url=signed_url)
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Secure PDF Redirect failed: {e}")
         raise HTTPException(status_code=404, detail="PDF file not found")
