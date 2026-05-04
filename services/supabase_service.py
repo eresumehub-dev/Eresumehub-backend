@@ -453,17 +453,7 @@ class SupabaseService:
     async def update_view_duration(self, view_id: str, pulse_data: Any) -> bool:
         """Update the duration and behavioral signals for a view session (v11.0.0)"""
         try:
-            # Pulse data can be simple int (legacy) or dict (v11.0.0)
-            update_payload = {}
-            if isinstance(pulse_data, dict):
-                 update_payload = {
-                     "duration_seconds": pulse_data.get("duration_seconds"),
-                     "max_scroll_depth": pulse_data.get("max_scroll_depth"),
-                     "is_active": pulse_data.get("is_active", True),
-                     "exit_point": pulse_data.get("exit_point")
-                 }
-            else:
-                 update_payload = {"duration_seconds": pulse_data}
+            update_payload = {"duration_seconds": pulse_data if isinstance(pulse_data, (int, float)) else pulse_data.get("duration_seconds", 0)}
 
             # Filter out None values to avoid overwriting existing data with nulls
             update_payload = {k: v for k, v in update_payload.items() if v is not None}
@@ -616,39 +606,57 @@ class SupabaseService:
             if not resume:
                 raise ValueError(f"Resume {resume_id} not found in database")
                 
-            # v16.5.12: Staff+ Resilient Path Resolution
-            # Try to extract path from stored pdf_url to ensure we match the actual upload location
+            # Staff+ Resilient Path Resolution (v16.5.13)
+            # Strategy:
+            # 1. Try path from DB URL (most accurate)
+            # 2. Try Modern Path: user_id/resume_id/slug.pdf
+            # 3. Try Legacy Path: user_id/slug.pdf
+            
             pdf_url = resume.get("pdf_url", "")
-            path = None
+            slug = resume.get("slug")
+            filename = f"{slug}.pdf"
             
+            paths_to_try = []
+            
+            # 1. Path from DB URL
             if pdf_url and "resumes-pdf/" in pdf_url:
-                # Extract everything after the bucket name
-                path = pdf_url.split("resumes-pdf/")[-1].split("?")[0]
-                logger.info(f"Resolved storage path from DB url: {path}")
+                db_path = pdf_url.split("resumes-pdf/")[-1].split("?")[0]
+                paths_to_try.append(db_path)
             
-            if not path:
-                filename = f"{resume.get('slug')}.pdf"
-                path = f"{user_id}/{resume_id}/{filename}"
-                logger.info(f"Fallback: Constructed storage path: {path}")
-
-            # 2. Create signed URL (60s is plenty for a browser to start the stream)
-            logger.info(f"Requesting signed URL for bucket: resumes-pdf, path: {path}")
-            response = await self.client.storage.from_("resumes-pdf").create_signed_url(path, expires_in)
+            # 2. Modern Path
+            paths_to_try.append(f"{user_id}/{resume_id}/{filename}")
             
-            # Log the response structure to debug 404s
-            logger.info(f"Storage service response: {response}")
+            # 3. Legacy Path
+            paths_to_try.append(f"{user_id}/{filename}")
 
-            if isinstance(response, dict):
-                if "signedURL" in response:
-                    return response["signedURL"]
-                if "error" in response:
-                    logger.error(f"Storage error for {path}: {response['error']}")
-                    raise ValueError(f"Storage error: {response['error']}")
-                
-            return getattr(response, "signed_url", str(response))
+            last_error = None
+            for try_path in paths_to_try:
+                try:
+                    logger.info(f"Attempting signed URL for path: {try_path}")
+                    response = await self.client.storage.from_("resumes-pdf").create_signed_url(try_path, expires_in)
+                    
+                    # Log response to see exactly what Supabase returns
+                    if isinstance(response, dict):
+                        if "signedURL" in response:
+                            logger.info(f"SUCCESS: Signed URL generated for {try_path}")
+                            return response["signedURL"]
+                        if "error" in response:
+                            last_error = response["error"]
+                            logger.warning(f"Storage path {try_path} not found: {last_error}")
+                            continue
+                    
+                    # Success for other SDK versions
+                    signed_url = getattr(response, "signed_url", str(response))
+                    if "http" in signed_url:
+                        return signed_url
+                except Exception as path_err:
+                    last_error = str(path_err)
+                    logger.warning(f"Error trying path {try_path}: {last_error}")
+
+            raise ValueError(f"PDF Object not found in any known locations. Last error: {last_error}")
             
         except Exception as e:
-            logger.error(f"Error creating signed URL for {resume_id} (Path: {path if 'path' in locals() else 'unknown'}): {e}")
+            logger.error(f"Error creating signed URL for {resume_id}: {e}")
             raise
     
     async def upload_thumbnail(self, user_id: str, resume_id: str, image_data: bytes, filename: str) -> str:
