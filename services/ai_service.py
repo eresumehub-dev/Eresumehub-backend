@@ -634,6 +634,7 @@ class AIService:
         except Exception: pass
 
         prompt = get_prompt("ats_analysis").format(
+            country=target_country, # v16.6.2: Pass context for global guardrails
             target_country=target_country,
             job_role=job_role,
             rag_context=rag_context_str,
@@ -674,6 +675,7 @@ class AIService:
         }
         
         prompt = get_prompt("extraction").format(
+            country="Global", # v16.6.2: Pass context for global guardrails
             schema_json=json.dumps(extraction_schema),
             resume_text=resume_text[:12000]
         )
