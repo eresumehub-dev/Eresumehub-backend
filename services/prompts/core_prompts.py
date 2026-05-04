@@ -167,14 +167,14 @@ NON-NEGOTIABLE SYSTEM RULES — These override every other instruction.
      - Set status.error_code to the appropriate error code.
      - Return null or [] for ALL fields inside "data".
      - NEVER replace the schema structure with a raw error object.
-     - NEVER output {"error": "..."} — that breaks strict schema enforcement.
+     - NEVER output {{"error": "..."}} — that breaks strict schema enforcement.
 
 6. COMPILER MINDSET
    You are a deterministic data compiler, not a creative writer.
    Your job is to restructure and reformat data that already exists.
    Creativity = hallucination risk. Precision = your only mode.
 </global_rules>
-r"""
+"""
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -252,7 +252,7 @@ OUTPUT:
     ...extracted fields matching schema...
   }}
 }}
-r"""
+"""
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -382,7 +382,7 @@ ADDRESS CHECK:
     ...formatted resume matching schema...
   }}
 }}
-r"""
+"""
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -398,7 +398,7 @@ PRECEDENCE: These rules are additive.
 If any compliance rule conflicts with DATA INTEGRITY rules → DATA INTEGRITY wins.
 Do NOT fabricate data to satisfy a compliance requirement.
 </country_compliance>
-r"""
+"""
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -478,7 +478,7 @@ OUTPUT:
     ...corrected resume matching schema...
   }}
 }}
-r"""
+"""
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -570,7 +570,7 @@ COUNTRY AUDIT:
     "countrySpecific": ["<country-norm observation>", ...]
   }}
 }}
-r"""
+"""
 
 
 # ──────────────────────────────────────────────────────────────────────────────
