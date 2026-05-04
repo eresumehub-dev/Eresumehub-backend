@@ -737,7 +737,9 @@ class AIService:
             "experience": [{"job_title": "str", "company": "str", "description": ["str"], "achievements": ["str"]}],
             "projects": [{"title": "str", "description": ["str"]}],
             "education": [{"degree": "str", "institution": "str"}],
-            "skills": ["string"]
+            "skills": ["string"],
+            "languages": [{"language": "str", "proficiency_cefr": "str"}],
+            "certifications": ["string"]
         }
         
         language_template_json = json.dumps(rag_data.get("language_template", {})) if rag_data else "{}"
@@ -806,6 +808,8 @@ class AIService:
             tailored["projects"] = self._ensure_list(tailored.get("projects"))
             tailored["education"] = self._ensure_list(tailored.get("education"))
             tailored["skills"] = self._ensure_list(tailored.get("skills"))
+            tailored["languages"] = self._ensure_list(tailored.get("languages"))
+            tailored["certifications"] = self._ensure_list(tailored.get("certifications"))
             
             # Map back to original structure
             return {

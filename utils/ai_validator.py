@@ -29,13 +29,14 @@ BANNED_VERBS = [
     "contributed", "contribute", "contributing",
     "supported", "support", "supporting",
     "worked on", "was involved in", "was responsible for",
+    "I ", "We ", "Me ", "My "
 ]
 
-# Pre-compiled: match banned verb at start of string (bullet points) or
-# after a period/newline (mid-text). Case-insensitive.
+# Pre-compiled: match banned verb anywhere in the string (word boundary enforced).
+# v1.1.0: Removed the start-of-line anchor to catch "I was responsible for" or "He helped..."
 _BANNED_VERB_PATTERNS = [
     re.compile(
-        r"(?:^|(?<=\.\s)|(?<=\n))\s*" + re.escape(v) + r"\b",
+        r"\b" + re.escape(v).strip() + r"\b",
         re.IGNORECASE | re.MULTILINE,
     )
     for v in BANNED_VERBS

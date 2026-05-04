@@ -328,12 +328,38 @@ class ResumePipeline:
             "headline": generated_data.get("headline", user_data.get("headline", "")),
             "score": 0 
         }
+
+        # 🖼️ v16.5.10: Remote Image Resolution (Fix for '?' placeholder)
+        # WeasyPrint often fails to fetch remote images due to CORS/Bot-Protection.
+        # We fetch them in the backend and embed as Base64.
+        pic_url = enriched_data.get("profile_pic_url") or user_data.get("photo_url")
+        if pic_url and "http" in pic_url and not enriched_data.get("profile_pic_base64"):
+            try:
+                import httpx
+                import base64
+                async with httpx.AsyncClient() as client:
+                    pic_res = await client.get(pic_url, timeout=5.0)
+                    if pic_res.status_code == 200:
+                        content_type = pic_res.headers.get("Content-Type", "image/jpeg")
+                        b64 = base64.b64encode(pic_res.content).decode()
+                        enriched_data["profile_pic_base64"] = f"data:{content_type};base64,{b64}"
+                        self.logger.info(f"[{self.request_id}] Profile picture resolved to Base64.")
+            except Exception as pic_err:
+                self.logger.warning(f"[{self.request_id}] Failed to resolve profile picture: {pic_err}")
         
-        # Ensure we have the canonical keys for the templates
+        # 🧬 v16.5.9: Bi-directional Normalization (Fix for missing sections)
+        # The AI returns 'experience'/'education', but templates expect 'work_experiences'/'educations'
+        # We must populate BOTH to ensure total compatibility.
+        if enriched_data.get("experience"):
+             enriched_data["work_experiences"] = enriched_data["experience"]
+        if enriched_data.get("education"):
+             enriched_data["educations"] = enriched_data["education"]
+             
+        # Reverse mapping for safety
         if not enriched_data.get("experience"):
-             enriched_data["experience"] = enriched_data.get("work_experiences", user_data.get("experience", []))
+             enriched_data["experience"] = enriched_data.get("work_experiences", [])
         if not enriched_data.get("education"):
-             enriched_data["education"] = enriched_data.get("educations", user_data.get("education", []))
+             enriched_data["education"] = enriched_data.get("educations", [])
              
         return resume_autocorrect.autocorrect_for_country(enriched_data, country), generated_data
 
