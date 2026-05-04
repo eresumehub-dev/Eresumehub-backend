@@ -431,6 +431,15 @@ class ResumePipeline:
                 "pdf_file_size": len(pdf_bytes)
             })
             self.logger.info(f"[{self.request_id}] Persist: SUCCESS for {resume_id}")
+            
+            # ⚡ v16.5.8: Force Cache Invalidation
+            # We must clear the dashboard bootstrap cache so the new resume appears immediately.
+            try:
+                await ProfileService.invalidate_cache(user_id)
+                self.logger.info(f"[{self.request_id}] Cache invalidated for user {user_id}")
+            except Exception as cache_err:
+                self.logger.warning(f"[{self.request_id}] Cache invalidation failed (non-fatal): {cache_err}")
+
             return resume_id, final_resume
         except Exception as e:
             if resume_id:

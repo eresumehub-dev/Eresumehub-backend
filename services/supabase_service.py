@@ -339,7 +339,10 @@ class SupabaseService:
     async def get_user_resumes(self, user_id: Any) -> List[Dict[str, Any]]:
         """Get all resumes for a user. Supports single ID or list of IDs."""
         try:
-            query = self.client.table("resumes").select("*")
+            # 🚀 v16.5.9: High-Performance Shallow Fetch
+            # We omit the massive 'resume_data' JSON but extract the 'score' from it.
+            fields = "id, user_id, slug, title, country, language, template_style, pdf_url, created_at, updated_at, visibility, is_default, ats_score, resume_data->score"
+            query = self.client.table("resumes").select(fields)
             
             if isinstance(user_id, list):
                 # Use OR filter for multiple IDs
