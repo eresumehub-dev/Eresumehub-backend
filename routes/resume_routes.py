@@ -254,6 +254,10 @@ async def update_resume(
     
     # Generic update for other fields
     updated = await supabase_service.update_resume(resume_id, payload)
+    
+    # Cache Invalidation Burst (v16.0.0 Alignment)
+    await ProfileService.invalidate_cache(user_id)
+    
     return {"success": True, "data": updated}
 
 @router.patch("/resumes/{resume_id}/default")
