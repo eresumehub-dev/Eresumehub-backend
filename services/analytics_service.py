@@ -356,16 +356,36 @@ class AnalyticsService:
         Standardized on auth_user_id. O(1) DB Read.
         """
         try:
+            # 1. Fetch from Cache (v16.5.12 SWR Alignment)
             response = await self.supabase.client.table("user_analytics_cache")\
-                .select("dashboard_json")\
+                .select("dashboard_json, updated_at")\
                 .eq("user_id", user_id)\
                 .execute()
             
             if response.data and response.data[0].get('dashboard_json'):
-                return response.data[0]['dashboard_json']
+                data = response.data[0]['dashboard_json']
+                updated_at_str = response.data[0].get('updated_at')
+                
+                # SWR Logic: If cache exists but is older than 30m, trigger refresh
+                if updated_at_str:
+                    try:
+                        updated_at = datetime.fromisoformat(updated_at_str.replace('Z', '+00:00'))
+                        age_seconds = (datetime.now(timezone.utc) - updated_at).total_seconds()
+                        
+                        # Tier A: Fresh (< 30m)
+                        if age_seconds < 1800:
+                            return data
+                        
+                        # Tier B: Stale (> 30m) - Trigger background recompute
+                        logger.info(f"Analytics cache STALE for user {user_id} ({int(age_seconds)}s old). Triggering SWR refresh.")
+                        self.enqueue_refresh(user_id, background_tasks)
+                        return data
+                    except Exception as parse_e:
+                        logger.warning(f"Failed to parse analytics cache age: {parse_e}")
+                
+                return data
             
-            # PRO-GRADE: Return empty/stale state instead of blocking.
-            # Trigger background refresh (v15.2.0 Alignment)
+            # 2. Cache MISS: Return empty structure and trigger refresh (v13.0.0)
             logger.info(f"Analytics cache MISS for user {user_id}. triggering background refresh.")
             self.enqueue_refresh(user_id, background_tasks)
             return self._get_empty_analytics(0)
