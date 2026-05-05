@@ -590,6 +590,13 @@ class AnalyticsService:
                 rv = views_df[views_df['resume_id'] == r['id']] if not views_df.empty else pd.DataFrame()
                 rd = [d for d in legacy_downloads if d.get('resume_id') == r['id']]
                 
+                # NEW: Aggregate Contact Clicks (WhatsApp, LinkedIn, Email)
+                contact_events = events_df[
+                    (events_df['event_name'].str.startswith('contact_')) & 
+                    (events_df['properties'].apply(lambda x: x.get('resume_id') == r['id']))
+                ] if not events_df.empty else pd.DataFrame()
+                contact_count = len(contact_events)
+
                 # Calculate Avg Duration
                 avg_dur = rv['duration_seconds'].mean() if not rv.empty and 'duration_seconds' in rv.columns else 0
                 avg_dur = 0 if pd.isna(avg_dur) else round(avg_dur, 1)
@@ -603,6 +610,7 @@ class AnalyticsService:
                     "title": r['title'], 
                     "views": len(rv),
                     "downloads": len(rd),
+                    "contact_clicks": contact_count,
                     "avg_duration": avg_dur,
                     "engagement_score": e_score,
                     "insight_tag": "Trending" if len(rv) > 5 and e_score > 0.6 else "Stable"
