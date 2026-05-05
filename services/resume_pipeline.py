@@ -316,137 +316,192 @@ class ResumePipeline:
         print(f"[{self.request_id}] 🏁 PIPELINE: Validation complete.")
         return gen_res
 
-    async def _step_post_process(self, user_data: Dict[str, Any], generation_result: Dict[str, Any], country: str):
+    async def _step_post_process(
+        self,
+        user_data: Dict[str, Any],
+        generation_result: Dict[str, Any],
+        country: str
+    ):
+        """
+        Post-process and enrich the AI output before PDF rendering.
+
+        v16.6.3 Changes:
+          FIX 1 — ADDRESS ALWAYS PRESERVED
+            The original address from user_data is re-injected AFTER the merge,
+            unconditionally. Previously the conditional length-check allowed
+            the AI's shorter version to win when enriched_data["address"] was
+            set but shorter.
+
+          FIX 2 — PHOTO MULTI-KEY FALLBACK + IMGUR BYPASS HANDLING
+            Imgur actively blocks server-side fetches (403). We now:
+            a) Try all known photo key names (case variants)
+            b) Catch 403/non-200 explicitly and store the raw URL as
+               profile_pic_url fallback so the template can attempt
+               a direct <img src=""> rather than silently showing "?"
+
+          FIX 3 — GHOST BULLET SCRUBBING
+            After merge, filter all falsy values from list fields
+            (certifications, skills, languages) so the template never
+            renders empty bullet points.
+
+          FIX 4 — METADATA RE-ATTACHMENT
+            Re-attach start_date, end_date, location from original user_data
+            to experience/education objects where the AI may have omitted them,
+            matched by company/institution name.
+        """
         await self._update_status("Applying Market Rules", 70)
-        # ai_service.generate_tailored_resume returns `resume_content` as `{**user_data, **tailored}`
+
         generated_data = generation_result.get("resume_content", {})
-        
+
+        # ── Step 1: Base merge ────────────────────────────────────────────
         enriched_data = {
             **user_data,
-            **generated_data, # Safely overlay all generated schema elements (experience, skills, projects)
+            **generated_data,
             "professional_summary": generation_result.get("generated_summary", ""),
             "headline": generated_data.get("headline", user_data.get("headline", "")),
-            "score": 0 
+            "score": 0
         }
 
-        # 🖼️ v16.6.2: Final-Boss Photo & Address Fix
-        pic_url = (
-            enriched_data.get("profile_pic_url") or 
-            user_data.get("photo_url") or 
-            user_data.get("Photo") or 
-            user_data.get("photo") or 
-            user_data.get("photoURL")
+        # ── FIX 1: Address — always re-inject original, unconditionally ──
+        # Do this AFTER merge so it can never be overwritten by generated_data.
+        original_address = (
+            user_data.get("address")
+            or user_data.get("location")
+            or user_data.get("city")
         )
-        
-        # Preserve Full Address (Fix for Milan / New Delhi stripping)
-        profile_address = user_data.get("address") or user_data.get("location")
-        if not profile_address:
-            # Fallback for raw keys in profile
-            profile_address = user_data.get("45, Fashion Street, Milan / New Delhi") or "45, Fashion Street, Milan / New Delhi"
-        
-        if profile_address and (not enriched_data.get("address") or len(str(enriched_data["address"])) < len(str(profile_address))):
-            enriched_data["address"] = profile_address
+        if original_address:
+            enriched_data["address"] = original_address
 
-        # 🧹 v16.6.2: List Scrubbing (Fix for Ghost Bullets •)
-        # Remove empty strings, nulls, and whitespace-only items from all lists
-        for list_key in ["skills", "languages", "certifications", "tools"]:
-            if enriched_data.get(list_key):
-                enriched_data[list_key] = [
-                    item for item in enriched_data[list_key] 
-                    if item and (isinstance(item, dict) or (isinstance(item, str) and item.strip() and item != "•"))
-                ]
+        # ── FIX 2: Photo — multi-key fallback + Imgur 403 handling ───────
+        pic_url = (
+            user_data.get("profile_pic_url")
+            or user_data.get("photo_url")
+            or user_data.get("Photo")       # JS bridge capitalizes this
+            or user_data.get("photo")
+            or user_data.get("photoURL")
+            or user_data.get("avatar_url")
+        )
 
         if pic_url and "http" in pic_url and not enriched_data.get("profile_pic_base64"):
             try:
-                import httpx
-                import base64
-                async with httpx.AsyncClient() as client:
-                    pic_res = await client.get(pic_url, timeout=5.0)
+                import httpx, base64
+                async with httpx.AsyncClient(
+                    headers={
+                        # Pretend to be a browser — Imgur blocks python-httpx user-agents
+                        "User-Agent": (
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                            "AppleWebKit/537.36 (KHTML, like Gecko) "
+                            "Chrome/124.0.0.0 Safari/537.36"
+                        ),
+                        "Referer": "https://eresumehub.com",
+                    },
+                    follow_redirects=True,
+                    timeout=8.0
+                ) as client:
+                    pic_res = await client.get(pic_url)
+
                     if pic_res.status_code == 200:
                         content_type = pic_res.headers.get("Content-Type", "image/jpeg")
                         b64 = base64.b64encode(pic_res.content).decode()
                         enriched_data["profile_pic_base64"] = f"data:{content_type};base64,{b64}"
                         self.logger.info(f"[{self.request_id}] Profile picture resolved to Base64.")
+                    elif pic_res.status_code == 403:
+                        # Imgur hotlink protection — store raw URL so template
+                        # can still attempt direct <img src="">
+                        self.logger.warning(
+                            f"[{self.request_id}] Photo 403 (hotlink blocked): {pic_url}. "
+                            f"Storing raw URL as fallback."
+                        )
+                        enriched_data["profile_pic_url"] = pic_url
+                    else:
+                        self.logger.warning(
+                            f"[{self.request_id}] Photo fetch failed "
+                            f"({pic_res.status_code}): {pic_url}"
+                        )
+                        enriched_data["profile_pic_url"] = pic_url  # fallback
             except Exception as pic_err:
-                self.logger.warning(f"[{self.request_id}] Failed to resolve profile picture: {pic_err}")
-        
-        # 🧬 v16.7.0: Heavy-Duty Smart Merge (Fix for Bugs 2, 4, 5)
-        # 1. Force Address Preservation (Bypass AI truncation)
-        profile_address = user_data.get("address") or user_data.get("location") or user_data.get("Photo", "").split("jpeg")[-1].strip() # Check if it snuck into a string
-        if not profile_address or len(profile_address) < 10:
-             # Look for the specific Milan/New Delhi string in the raw user_data values
-             for v in user_data.values():
-                  if isinstance(v, str) and "Milan" in v:
-                       profile_address = v
-                       break
-        
-        if profile_address:
-             enriched_data["address"] = profile_address
+                self.logger.warning(
+                    f"[{self.request_id}] Failed to resolve profile picture: {pic_err}"
+                )
+                if pic_url:
+                    enriched_data["profile_pic_url"] = pic_url  # always store URL as last resort
 
-        # 2. Re-attach Metadata (Dates/Locations) for Experience, Education, and Certifications
-        # Experience
-        for exp in enriched_data.get("work_experiences", []):
-            if not exp.get("start_date"):
-                for p_exp in user_data.get("experience", user_data.get("work_experiences", [])):
-                    if p_exp.get("company") == exp.get("company"):
-                        exp["start_date"] = p_exp.get("start_date")
-                        exp["end_date"] = p_exp.get("end_date")
-                        exp["location"] = p_exp.get("location") or p_exp.get("city")
-                        break
-        
-        # Education
-        for edu in enriched_data.get("educations", []):
-            if not edu.get("graduation_date"):
-                for p_edu in user_data.get("education", user_data.get("educations", [])):
-                    if p_edu.get("institution") == edu.get("institution"):
-                        edu["graduation_date"] = p_edu.get("graduation_date")
-                        edu["location"] = p_edu.get("location") or p_edu.get("city")
-                        break
+        # ── FIX 4: Metadata re-attachment (dates + locations) ────────────
+        # Re-attach from original user_data if the AI schema omitted them.
+        # Matched by company name (experience) or institution name (education).
 
-        # 🎖️ Certifications (Bug 5 fix)
-        for cert in enriched_data.get("certifications", []):
-             cert_name = cert if isinstance(cert, str) else cert.get("name")
-             if cert_name:
-                  for p_cert in user_data.get("certifications", []):
-                       p_name = p_cert if isinstance(p_cert, str) else p_cert.get("name")
-                       if p_name == cert_name:
-                            # If it was a string, convert to dict to add date
-                            idx = enriched_data["certifications"].index(cert)
-                            enriched_data["certifications"][idx] = {
-                                 "name": cert_name,
-                                 "date": p_cert.get("date") if isinstance(p_cert, dict) else None
-                            }
-                            break
+        # Build lookup maps from user_data
+        profile_exp_map = {
+            e.get("company", "").lower(): e
+            for e in user_data.get("experience", user_data.get("work_experiences", []))
+            if e.get("company")
+        }
+        profile_edu_map = {
+            e.get("institution", "").lower(): e
+            for e in user_data.get("education", user_data.get("educations", []))
+            if e.get("institution")
+        }
 
-        # 🧹 Ghost Bullet Scrubbing (Bug 4 fix)
-        for list_key in ["skills", "languages", "certifications"]:
-            if enriched_data.get(list_key):
-                enriched_data[list_key] = [
-                    item for item in enriched_data[list_key] 
-                    if item and (isinstance(item, dict) or (isinstance(item, str) and item.strip() and item != "•"))
-                ]
+        for exp in enriched_data.get("experience", enriched_data.get("work_experiences", [])):
+            company_key = exp.get("company", "").lower()
+            if company_key in profile_exp_map:
+                src = profile_exp_map[company_key]
+                if not exp.get("start_date"):
+                    raw_date = src.get("start_date", "")
+                    # Normalize "2019-01-01" → "2019-01"
+                    exp["start_date"] = raw_date[:7] if raw_date else ""
+                if not exp.get("end_date"):
+                    raw_date = src.get("end_date", "")
+                    if raw_date and raw_date.lower() not in ("present", "current"):
+                        exp["end_date"] = raw_date[:7]
+                    elif raw_date:
+                        exp["end_date"] = "present"
+                if not exp.get("location"):
+                    exp["location"] = src.get("location") or src.get("city") or ""
 
-        # 🖼️ Base64 Photo Resolver (Bug 3 fix)
-        pic_url = enriched_data.get("profile_pic_url") or user_data.get("photo_url") or user_data.get("Photo")
-        if pic_url and "http" in pic_url and not enriched_data.get("profile_pic_base64"):
-            try:
-                import httpx
-                import base64
-                # Use a common browser User-Agent to bypass Imgur bot protection
-                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
-                async with httpx.AsyncClient(verify=False, headers=headers) as client:
-                    pic_res = await client.get(pic_url, timeout=10.0)
-                    if pic_res.status_code == 200:
-                        content_type = pic_res.headers.get("Content-Type", "image/jpeg")
-                        b64 = base64.b64encode(pic_res.content).decode()
-                        enriched_data["profile_pic_base64"] = f"data:{content_type};base64,{b64}"
-            except Exception as pic_err:
-                self.logger.warning(f"[{self.request_id}] Photo resolution failed: {pic_err}")
+        for edu in enriched_data.get("education", enriched_data.get("educations", [])):
+            inst_key = edu.get("institution", "").lower()
+            if inst_key in profile_edu_map:
+                src = profile_edu_map[inst_key]
+                if not edu.get("graduation_date"):
+                    raw_date = src.get("graduation_date", "")
+                    edu["graduation_date"] = raw_date[:7] if raw_date else ""
+                if not edu.get("location"):
+                    edu["location"] = src.get("location") or src.get("city") or ""
 
-        # Final bi-directional sync
-        enriched_data["experience"] = enriched_data.get("work_experiences", [])
-        enriched_data["education"] = enriched_data.get("educations", [])
-             
+        # ── FIX 3: Ghost bullet scrubbing ────────────────────────────────
+        # Remove empty strings / None / whitespace-only entries from all list fields.
+        # This stops the template from rendering empty bullet points.
+        for field_name in ("certifications", "skills"):
+            raw_list = enriched_data.get(field_name, [])
+            enriched_data[field_name] = [
+                item for item in raw_list
+                if isinstance(item, str) and item.strip()
+            ]
+
+        # Languages can be dicts or strings — scrub both
+        raw_languages = enriched_data.get("languages", [])
+        enriched_data["languages"] = [
+            lang for lang in raw_languages
+            if lang and (
+                (isinstance(lang, str) and lang.strip())
+                or (isinstance(lang, dict) and lang.get("language", "").strip())
+            )
+        ]
+
+        # ── Step 5: Bi-directional key aliasing ──────────────────────────
+        # Templates expect both "experience"/"work_experiences" and
+        # "education"/"educations" — populate both.
+        if enriched_data.get("experience"):
+            enriched_data["work_experiences"] = enriched_data["experience"]
+        elif enriched_data.get("work_experiences"):
+            enriched_data["experience"] = enriched_data["work_experiences"]
+
+        if enriched_data.get("education"):
+            enriched_data["educations"] = enriched_data["education"]
+        elif enriched_data.get("educations"):
+            enriched_data["education"] = enriched_data["educations"]
+
         return resume_autocorrect.autocorrect_for_country(enriched_data, country), generated_data
 
     async def _step_render_and_analyze(self, resume_content: str, enriched_data: Dict[str, Any], job_title: str, country: str, data: Dict[str, Any]):
@@ -778,4 +833,3 @@ class ResumePipeline:
                 pass
 
         return result
-

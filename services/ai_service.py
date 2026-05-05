@@ -731,62 +731,84 @@ class AIService:
         res = await self.call_api(prompt, temperature=0.7, max_tokens=30, request_id=request_id)
         return str(res).strip() if res else f"{role} Resume"
 
-    async def generate_tailored_resume(self, user_data: Dict[str, Any], job_description: str, country: str, language: str, job_title: str, rag_data: Dict[str, Any] = None, compliance_gap: List[str] = None, request_id: str = "internal") -> Dict[str, Any]:
+    async def generate_tailored_resume(
+        self,
+        user_data: Dict[str, Any],
+        job_description: str,
+        country: str,
+        language: str,
+        job_title: str,
+        rag_data: Dict[str, Any] = None,
+        compliance_gap: List[str] = None,
+        request_id: str = "internal"
+    ) -> Dict[str, Any]:
         """
-        AI Tailoring Phase (v16.7.0): Core ATS-optimization engine.
-        Now includes 'Market Isolation' to prevent Japan context from bleeding into other regions.
-        """
-        # 🛡️ v16.7.0: Market Isolation Logic (Fix for Bug 1)
-        # If targeting a non-Japan market, we neutralize Japan-specific signals in the profile.
-        if country.lower() != "japan":
-            if "self_pr" in user_data or "Self-PR" in user_data:
-                # Rename to professional_summary so AI treats it as general context
-                val = user_data.pop("self_pr", user_data.pop("Self-PR", ""))
-                if val and not user_data.get("summary"):
-                    user_data["summary"] = val
-            
-            if "motivation" in user_data or "Motivation" in user_data:
-                # Neutralize Tokyo-specific motivation if it exists
-                val = user_data.get("motivation", user_data.get("Motivation", ""))
-                if isinstance(val, str) and "tokyo" in val.lower():
-                    user_data["motivation"] = "Seeking a challenging role in the fashion industry to leverage international design expertise."
+        Tailor resume content to match a specific job description.
 
+        v16.6.3 Changes:
+          FIX 1 — SCHEMA COMPLETENESS
+            Added start_date, end_date, location to experience objects.
+            Added graduation_date, location to education objects.
+            These were previously stripped because "SCHEMA IS LAW" removed
+            any field not in the schema dict.
+
+          FIX 2 — PRE-PROMPT JAPAN FIELD SANITIZATION
+            If target country is NOT Japan, Japan-specific fields (Self-PR,
+            Motivation/志望動機, any text referencing "Tokyo" or "Japanese market")
+            are removed or rewritten BEFORE being sent to the AI.
+            This is a deterministic pipeline fix — not relying on the AI to rewrite
+            content it sees as already complete and authoritative.
+        """
+
+        # ── FIX 1: Complete schema — never let the AI strip dates/locations ──
         schema = {
-            "generated_summary": "string (strictly optimize professional summary for this ATS and role)",
+            "generated_summary": "string (strictly optimized professional summary for this ATS and role)",
             "headline": "string (professional headline strictly matching requested role)",
-            "experience": [{
-                "job_title": "str", 
-                "company": "str", 
-                "location": "str (City, Country)",
-                "start_date": "YYYY-MM",
-                "end_date": "YYYY-MM or 'present'",
-                "description": ["str"], 
-                "achievements": ["str"]
-            }],
-            "projects": [{
-                "title": "str", 
-                "role": "str",
-                "start_date": "YYYY-MM",
-                "end_date": "YYYY-MM or 'present'",
-                "technologies": ["str"],
-                "description": ["str"]
-            }],
-            "education": [{
-                "degree": "str", 
-                "institution": "str",
-                "location": "str",
-                "graduation_date": "YYYY-MM"
-            }],
+            "experience": [
+                {
+                    "job_title": "str",
+                    "company": "str",
+                    "start_date": "str (YYYY-MM format, e.g. '2019-01')",
+                    "end_date": "str (YYYY-MM format or 'present')",
+                    "location": "str (city/country of the role, if known)",
+                    "description": ["str"],
+                    "achievements": ["str (strong action verb, measurable where possible)"]
+                }
+            ],
+            "projects": [
+                {
+                    "title": "str",
+                    "description": ["str"]
+                }
+            ],
+            "education": [
+                {
+                    "degree": "str",
+                    "institution": "str",
+                    "graduation_date": "str (YYYY-MM format)",
+                    "location": "str (city/country, if known)"
+                }
+            ],
             "skills": ["string"],
-            "languages": [{"language": "str", "proficiency_cefr": "str"}],
-            "certifications": ["string"]
+            "languages": [
+                {
+                    "language": "str",
+                    "proficiency": "str (CEFR level e.g. C2, B2, or JLPT N4 for Japanese)"
+                }
+            ],
+            "certifications": ["string (non-empty certification name only)"]
         }
-        
+
+        # ── FIX 2: Pre-prompt sanitization — strip Japan-specific content
+        #    when target country is NOT Japan ──────────────────────────────
+        sanitized_user_data = self._sanitize_country_specific_fields(
+            user_data=user_data,
+            target_country=country
+        )
+
         language_template_json = json.dumps(rag_data.get("language_template", {})) if rag_data else "{}"
-        
-        # 🧬 v16.5.4: Adaptive Knowledge Base Truncation
-        # India KB is 48KB+, which causes 413 "Request too large" on Groq and massive token costs.
-        # We prioritize structure and ATS rules, then truncate the rest to ~15k chars.
+
+        # Adaptive Knowledge Base Truncation (v16.5.4)
         kb_full = rag_data.get("knowledge_base", {}) if rag_data else {}
         kb_essential = {
             "country": kb_full.get("country"),
@@ -794,17 +816,22 @@ class AIService:
             "cv_structure": kb_full.get("cv_structure")
         }
         knowledge_base_json = json.dumps(kb_essential)
-        
-        # If still too large or we need other parts, we take a slice of the full string as fallback
         if len(knowledge_base_json) < 5000 and kb_full:
-             knowledge_base_json = json.dumps(kb_full)[:15000]
-             
+            knowledge_base_json = json.dumps(kb_full)[:15000]
+
         cv_structure_order = json.dumps(kb_full.get("cv_structure", {}).get("order", []))
-        
-        # 🧪 Phase 3.1: Hybrid Adaptive Prompting
+
+        # Compliance gap injection
         compliance_rules = ""
         if compliance_gap:
-             compliance_rules = f"\n        🚨 COMPLIANCE GAP (ADAPT REQUIRED):\n        The applicant profile for {country} is currently missing: {', '.join(compliance_gap)}.\n        DO NOT fail. DO NOT hallucinate. \n        Proceed by ensuring existing sections are exceptionally strong to compensate for missing regional data."
+            compliance_rules = (
+                f"\nCOMPLIANCE GAP (ADAPT REQUIRED):\n"
+                f"The applicant profile is missing some {country} fields: "
+                f"{', '.join(compliance_gap)}.\n"
+                f"DO NOT fail or return INSUFFICIENT_DATA. DO NOT hallucinate these values.\n"
+                f"Proceed with generation. Make the professional summary and achievements "
+                f"exceptionally strong to compensate for the missing sections."
+            )
 
         compliance_injection = build_compliance_block(country, compliance_rules)
 
@@ -812,22 +839,22 @@ class AIService:
             country=country,
             compliance_injection_block=compliance_injection,
             job_title=job_title,
-            user_data_json=json.dumps(user_data),
+            user_data_json=json.dumps(sanitized_user_data),   # sanitized, not raw
             job_description=job_description[:1500],
             language_template_json=language_template_json,
             knowledge_base_json=knowledge_base_json,
             cv_structure_order=cv_structure_order,
-            country_name=country, # for those that use {country}
+            country_name=country,
             language=language,
             schema_json=json.dumps(schema)
         )
-        
+
         logger.info(f"[{request_id}] JOB TITLE EXECUTED: '{job_title}'")
         logger.info(f"[{request_id}] RAG DATA USED: Language={len(language_template_json)} bytes, KB={len(knowledge_base_json)} bytes")
         logger.info(f"[{request_id}] FINAL PROMPT LENGTH: {len(prompt)} chars")
-        
+
         api_res = await self.call_model(prompt, temperature=0.4, max_tokens=3000, request_id=request_id)
-        
+
         if not api_res.get("success"):
             logger.error(f"[{request_id}] AI Provider Exhausted in generate_tailored_resume.")
             return {"success": False, "error": "PROVIDER_FAIL"}
@@ -835,30 +862,54 @@ class AIService:
         try:
             content = api_res.get("content")
             result = parse_llm_response(content)
-            
+
             if not result.get("status", {}).get("success", False):
                 error_code = result.get("status", {}).get("error_code", "GENERATION_FAILED")
-                logger.error(f"[{request_id}] AI Generation Failure (Model-reported): {error_code} - {result.get('status', {}).get('message')}")
+                logger.error(
+                    f"[{request_id}] AI Generation Failure (Model-reported): "
+                    f"{error_code} - {result.get('status', {}).get('message')}"
+                )
                 return {"success": False, "error": error_code}
-                
+
             tailored = result.get("data", {})
-            
-            # Defensive normalization: Ensure Pydantic types (v16.4.14)
-            tailored["experience"] = self._ensure_list(tailored.get("experience"))
-            tailored["projects"] = self._ensure_list(tailored.get("projects"))
-            tailored["education"] = self._ensure_list(tailored.get("education"))
-            tailored["skills"] = self._ensure_list(tailored.get("skills"))
-            tailored["languages"] = self._ensure_list(tailored.get("languages"))
+
+            # Defensive normalization
+            tailored["experience"]     = self._ensure_list(tailored.get("experience"))
+            tailored["projects"]       = self._ensure_list(tailored.get("projects"))
+            tailored["education"]      = self._ensure_list(tailored.get("education"))
+            tailored["skills"]         = self._ensure_list(tailored.get("skills"))
+            tailored["languages"]      = self._ensure_list(tailored.get("languages"))
             tailored["certifications"] = self._ensure_list(tailored.get("certifications"))
-            
-            # Map back to original structure
+
+            # ── FIX 3: Scrub empty strings from list fields ──────────────
+            # Prevents ghost bullets (empty • dots) in the PDF template.
+            tailored["certifications"] = [
+                c for c in tailored["certifications"]
+                if isinstance(c, str) and c.strip()
+            ]
+            tailored["skills"] = [
+                s for s in tailored["skills"]
+                if isinstance(s, str) and s.strip()
+            ]
+            tailored["languages"] = [
+                lang for lang in tailored["languages"]
+                if lang and (
+                    isinstance(lang, str) and lang.strip()
+                    or isinstance(lang, dict) and lang.get("language", "").strip()
+                )
+            ]
+
             return {
-                "success": True, 
-                "resume_content": {**user_data, **tailored}, 
+                "success": True,
+                "resume_content": {**sanitized_user_data, **tailored},
                 "generated_summary": tailored.get("generated_summary", "")
             }
+
         except Exception as e:
-            logger.error(f"[{request_id}] AI Parse Failure: {e}. Content: {api_res.get('content')[:150]}")
+            logger.error(
+                f"[{request_id}] AI Parse Failure: {e}. "
+                f"Content: {api_res.get('content', '')[:150]}"
+            )
             return {"success": False, "error": "PARSE_ERROR"}
 
     async def enforce_compliance_correction(self, json_payload: Dict[str, Any], violations: List[str], country: str = "Germany", user_data: Dict[str, Any] = None, request_id: str = "correction") -> Dict[str, Any]:
@@ -919,6 +970,68 @@ class AIService:
         except Exception as e:
             logger.error(f"[{request_id}] Motivation generation failed: {e}")
             return None
+
+    def _sanitize_country_specific_fields(
+        self,
+        user_data: Dict[str, Any],
+        target_country: str
+    ) -> Dict[str, Any]:
+        """
+        Pre-prompt sanitization: remove or neutralize country-specific content
+        that does not match the target market.
+
+        This runs BEFORE the AI sees the data — deterministic, not prompt-reliant.
+
+        Current rules:
+          - If target is NOT Japan: remove Self-PR, Motivation (志望動機), and any
+            summary/motivation text that references "Tokyo", "Japanese market",
+            "Japanese craftsmanship" as a career goal (vs a factual work bullet).
+          - The user's professional_summary (skills-based) is preserved.
+          - Factual experience bullets mentioning Japan clients/manufacturers are
+            preserved — only career-goal text is stripped.
+
+        v16.6.3 — new method.
+        """
+        import copy
+        data = copy.deepcopy(user_data)
+
+        japan_target_phrases = [
+            "tokyo", "japanese market", "japanese craftsmanship",
+            "luxury apparel brand in tokyo", "contribute to a leading luxury",
+            "japanese aesthetics", "志望動機", "自己pr",
+        ]
+
+        is_japan_target = target_country.lower() in ("japan", "日本")
+
+        if not is_japan_target:
+            # 1. Remove dedicated Japan-market fields
+            for key in ("self_pr", "Self-PR", "motivation", "Motivation",
+                        "jiboukei", "志望動機", "自己PR"):
+                data.pop(key, None)
+
+            # 2. If the user's summary is Japan-targeted, fall back to the
+            #    skills-based professional_summary instead.
+            #    We detect "Japan targeting" by checking for goal phrases.
+            summary_field = data.get("summary", "")
+            if summary_field and any(
+                phrase in summary_field.lower() for phrase in japan_target_phrases
+            ):
+                # Use the professional_summary field if available (skills-based)
+                alt_summary = data.get("professional_summary", "")
+                if alt_summary and alt_summary.strip():
+                    data["summary"] = alt_summary
+                else:
+                    # Wipe it — let the AI generate a fresh one from experience
+                    data["summary"] = ""
+
+            # 3. Same check for any "professional_summary" key that is Japan-targeted
+            prof_summary = data.get("professional_summary", "")
+            if prof_summary and any(
+                phrase in prof_summary.lower() for phrase in japan_target_phrases
+            ):
+                data["professional_summary"] = ""
+
+        return data
 
 # Global instance
 ai_service = AIService()
