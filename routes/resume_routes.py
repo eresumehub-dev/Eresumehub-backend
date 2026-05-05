@@ -223,6 +223,9 @@ async def delete_resume_route(resume_id: str, user_id: str = Depends(get_current
         if not success:
             raise HTTPException(status_code=404, detail="Resume not found or unauthorized")
             
+        # Explicit Cache Invalidation (v16.0.0 Alignment)
+        await ProfileService.invalidate_cache(user_id)
+            
         return {"success": True}
     except HTTPException:
         raise
