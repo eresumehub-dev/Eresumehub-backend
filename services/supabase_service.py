@@ -569,7 +569,7 @@ class SupabaseService:
                 await self.client.storage.from_("resumes-pdf").upload(
                     path,
                     file_data,
-                    {"content-type": "application/pdf", "upsert": True, "cache-control": "no-cache"}
+                    {"content-type": "application/pdf", "upsert": "true", "cache-control": "no-cache"}
                 )
             except Exception as e:
                 # If conflict (409) or other error, try update/overwrite
@@ -578,7 +578,7 @@ class SupabaseService:
                     await self.client.storage.from_("resumes-pdf").update(
                         path,
                         file_data,
-                        {"content-type": "application/pdf", "cache-control": "no-cache", "upsert": True}
+                        {"content-type": "application/pdf", "cache-control": "no-cache", "upsert": "true"}
                     )
                 except Exception as update_err:
                      logger.error(f"Overwrite failed too: {update_err}")

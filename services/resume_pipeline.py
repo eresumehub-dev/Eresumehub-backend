@@ -549,28 +549,21 @@ class ResumePipeline:
         elif enriched_data.get("educations"):
             enriched_data["education"] = enriched_data["educations"]
 
-        # ── Step 5: Bi-directional key aliasing ──────────────────────────
-        # Templates expect both "experience"/"work_experiences" and
-        # "education"/"educations" — populate both.
-        if enriched_data.get("experience"):
-            enriched_data["work_experiences"] = enriched_data["experience"]
-        elif enriched_data.get("work_experiences"):
-            enriched_data["experience"] = enriched_data["work_experiences"]
-
-        if enriched_data.get("education"):
-            enriched_data["educations"] = enriched_data["education"]
-        elif enriched_data.get("educations"):
-            enriched_data["education"] = enriched_data["educations"]
-
-        # ── FINAL STEP: Market-Field Stripping (v16.6.7) ─────────────────
-        # Even if the AI omitted "Motivation", it might still exist in 
-        # the raw user_data that was merged. We strip it again so the 
-        # HTML template never renders it for non-Japan markets.
+        # ── FINAL STEP: Market-Field Stripping (v16.6.8) ─────────────────
+        # Two-surface sanitize:
+        #   1. enriched_data  → passed as user_data= to HTMLGenerator (was done)
+        #   2. generated_data → passed as text= to HTMLGenerator (was MISSING)
+        # generated_data = {**user_data, **tailored} from ai_service, so it
+        # still contains motivation/Self-PR from the original user_data merge.
+        # Sanitizing both surfaces closes the final leak to the template.
         enriched_data = self.ai_service._sanitize_country_specific_fields(
-            enriched_data, 
+            enriched_data,
             country
         )
-
+        generated_data = self.ai_service._sanitize_country_specific_fields(
+            generated_data,
+            country
+        )
 
         return resume_autocorrect.autocorrect_for_country(enriched_data, country), generated_data
 

@@ -13,7 +13,7 @@ Changelog from v1.0.0:
          Exact match only for 1-2 char tokens (acronyms like "C", "R", "UI").
 
   FIX 2 — METRIC FALSE POSITIVE on existing numbers
-    Previous pattern matched \d+ (any digit sequence), including years in dates.
+    Previous pattern matched \\d+ (any digit sequence), including years in dates.
     A bullet like "Reduced costs by 15%" correctly has a metric, but the model's
     internal check sometimes re-adds [ADD METRIC] due to prompt ambiguity.
     Fix: Pattern now requires % or currency or magnitude suffix to qualify as
