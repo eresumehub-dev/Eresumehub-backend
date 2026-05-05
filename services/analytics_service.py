@@ -556,6 +556,7 @@ class AnalyticsService:
                     "ttv_median": segments["ttu_median"],
                     "conversion_rate": round((total_downloads / max(1, total_views)) * 100, 1),
                     "power_score": p_score,
+                    "avg_ats_score": round(avg_base_score, 1),
                     "total_resumes": len(resumes)
                 },
                 "segments": segments,
@@ -613,6 +614,7 @@ class AnalyticsService:
                     "contact_clicks": contact_count,
                     "avg_duration": avg_dur,
                     "engagement_score": e_score,
+                    "success_probability": 0, # TODO: Implement true ML Predictor
                     "insight_tag": "Trending" if len(rv) > 5 and e_score > 0.6 else "Stable"
                 })
 
@@ -679,6 +681,7 @@ class AnalyticsService:
             "summary": {
                 "total_views": 0, "total_downloads": 0, "avg_time_spent": 0, 
                 "conversion_rate": 0, "power_score": power_score,
+                "avg_ats_score": 0,
                 "total_resumes": 0, "analyzed_resumes": 0
             },
             "trends": [], "activities": [], "resume_performance": [],
