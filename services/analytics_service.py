@@ -518,17 +518,7 @@ class AnalyticsService:
             if not views_df.empty and 'referrer' in views_df.columns:
                 segments["referrer"] = views_df.groupby('referrer')['engagement_score'].mean().to_dict()
 
-            # 7. PREDICTIVE MODEL V1: SUCCESS PROBABILITY
-            success_predictions = {}
-            for rid in resume_ids:
-                rv = views_df[views_df['resume_id'] == rid] if not views_df.empty else pd.DataFrame()
-                if len(rv) > 5:
-                    base_ps = next((r['resume_data']['score'] for r in resumes if r['id'] == rid), 0)
-                    engage_ratio = rv['is_engaged'].mean()
-                    prob = (base_ps/100 * 0.4) + (engage_ratio * 0.4) + (min(5, interact_counts.get(rid, 0))/5 * 0.2)
-                    success_predictions[rid] = min(0.99, round(prob, 2))
-
-            # 8. AUTO-DIAGNOSIS ENGINE
+            # 7. AUTO-DIAGNOSIS ENGINE (v16.5.15)
             target_pool = [r for r in resumes if r.get('resume_data')]
             all_recs = []
             for res in target_pool:
@@ -595,17 +585,27 @@ class AnalyticsService:
                     })
                 analytics['activities'] = activities
 
+            # 9.6 PER-RESUME METRICS (Premium Redesign)
             for r in resumes:
                 rv = views_df[views_df['resume_id'] == r['id']] if not views_df.empty else pd.DataFrame()
+                rd = [d for d in legacy_downloads if d.get('resume_id') == r['id']]
+                
+                # Calculate Avg Duration
+                avg_dur = rv['duration_seconds'].mean() if not rv.empty and 'duration_seconds' in rv.columns else 0
+                avg_dur = 0 if pd.isna(avg_dur) else round(avg_dur, 1)
+
+                # Engagement Score (Weighted)
                 e_score = rv['engagement_score'].mean() if not rv.empty else 0
                 e_score = 0 if pd.isna(e_score) else round(e_score, 2)
                 
                 analytics['resume_performance'].append({
-                    "id": r['id'], "title": r['title'], "views": len(rv),
+                    "id": r['id'], 
+                    "title": r['title'], 
+                    "views": len(rv),
+                    "downloads": len(rd),
+                    "avg_duration": avg_dur,
                     "engagement_score": e_score,
-                    "success_probability": success_predictions.get(r['id'], 0.1),
-                    "downloads": len(rv[rv['source'] == 'legacy']) if not rv.empty and 'source' in rv.columns else 0,
-                    "insight_tag": "Trending" if len(rv) > 10 and e_score > 0.6 else "Stable"
+                    "insight_tag": "Trending" if len(rv) > 5 and e_score > 0.6 else "Stable"
                 })
 
             if not views_df.empty:
