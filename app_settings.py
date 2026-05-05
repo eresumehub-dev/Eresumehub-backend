@@ -21,6 +21,7 @@ class Config:
     RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "").strip('"').strip("'")
     SUPPORT_EMAIL: str = os.getenv("SUPPORT_EMAIL", "support@eresumehub.com")
     
+    API_BASE_URL: str = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
     API_SECRET_KEY: str = os.getenv("API_SECRET_KEY", "")
     MAX_FILE_SIZE_MB: int = int(os.getenv("MAX_FILE_SIZE_MB", 10))
     MAX_FILE_SIZE_BYTES: int = MAX_FILE_SIZE_MB * 1024 * 1024

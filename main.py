@@ -23,6 +23,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from middleware.request_id_middleware import RequestIDMiddleware
 from middleware.latency_middleware import LatencyMiddleware
+import httpx
 from services.resume_pipeline import PipelineError
 
 # -----------------------------
@@ -274,7 +275,7 @@ async def download_resume_pdf_proxied(
     background_tasks: BackgroundTasks,
     user_id: Optional[str] = Depends(get_optional_user_id)
 ):
-    """Staff+ Zero-Memory Secure PDF Delivery via Signed URL Redirect (Public Access Support)."""
+    """Staff+ Zero-Memory Secure PDF Delivery via Streaming Proxy (v16.5.11)."""
     try:
         # 1. Fetch resume metadata
         resume = await supabase_service.get_resume(resume_id)
@@ -288,7 +289,7 @@ async def download_resume_pdf_proxied(
         if not (is_owner or is_public):
             raise HTTPException(status_code=403, detail="Unauthorized access to this resume")
 
-        # 3. Log in background to prevent event-loop-blocking or request-teardown dropping
+        # 3. Log in background
         background_tasks.add_task(
             supabase_service.log_resume_download, 
             resume_id, 
@@ -299,15 +300,34 @@ async def download_resume_pdf_proxied(
             }
         )
         
-        # 4. Create signed URL for zero-memory direct download (Using Service Role for Public Bypass)
-        # Pass the owner's ID to fetch the file from their storage bucket
+        # 4. Create signed URL (Increased TTL to 1 hour as per Bug #3 fix)
         resume_owner_id = resume.get("user_id")
-        signed_url = await supabase_service.get_resume_signed_url(resume_owner_id, resume_id)
+        signed_url = await supabase_service.get_resume_signed_url(resume_owner_id, resume_id, 3600)
         
-        return RedirectResponse(url=signed_url)
+        # 5. STREAMING PROXY (v16.5.11 Fix: Bypasses 302 cross-origin block in iframes)
+        async def stream_pdf():
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                async with client.stream("GET", signed_url) as r:
+                    if r.status_code != 200:
+                        logger.error(f"Failed to fetch PDF from storage: {r.status_code}")
+                        return
+                    async for chunk in r.aiter_bytes(65536): # Optimized 64KB chunks
+                        yield chunk
+
+        slug = resume.get("slug", "resume")
+        return StreamingResponse(
+            stream_pdf(),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'inline; filename="{slug}.pdf"',
+                "Cache-Control": "public, max-age=300",
+                "X-Content-Type-Options": "nosniff",
+                "Content-Encoding": "identity",
+            }
+        )
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Secure PDF Redirect failed: {e}")
+        logger.error(f"Secure PDF Proxy failed: {e}")
         raise HTTPException(status_code=404, detail="PDF file not found")

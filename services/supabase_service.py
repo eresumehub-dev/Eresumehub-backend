@@ -12,6 +12,7 @@ import logging
 import asyncio
 from supabase import AsyncClient
 from dotenv import load_dotenv
+from app_settings import Config
 
 # Use the centralized client to ensure single connection pool and consistent config
 from utils.supabase_client import get_client
@@ -288,7 +289,7 @@ class SupabaseService:
                 .execute()
             
             if not resume_response.data:
-                logger.warning(f"Public lookup failed: No resume found with slug '{clean_slug}' for user_id '{user_id}'")
+                logger.warning(f"Public lookup failed: No resume found with slug '{clean_slug}' for user_id '{user_auth_id}'")
                 return None
                 
             resume = resume_response.data[0]
@@ -297,8 +298,8 @@ class SupabaseService:
             
             # Check visibility
             if visibility in ["public", "unlisted"]:
-                # Staff+ Update: Force use of proxied PDF endpoint for public sharing
-                resume["pdf_url"] = f"/api/v1/resume/{resume.get('id')}/pdf"
+                # Staff+ Update: Force use of absolute proxied PDF endpoint for public sharing (v16.5.11 Fix)
+                resume["pdf_url"] = f"{Config.API_BASE_URL}/api/v1/resume/{resume.get('id')}/pdf"
                 return resume
             else:
                 logger.warning(f"Public access denied: Resume '{slug}' visibility is '{visibility}'")
@@ -601,7 +602,7 @@ class SupabaseService:
             logger.error(f"Error uploading PDF: {str(e)}")
             raise
 
-    async def get_resume_signed_url(self, user_id: str, resume_id: str, expires_in: int = 60) -> str:
+    async def get_resume_signed_url(self, user_id: str, resume_id: str, expires_in: int = 3600) -> str:
         """Generate a temporary signed URL for zero-memory direct download (Staff+ Optimized)."""
         try:
             # 1. Fetch resume to get the filename/slug used during upload
