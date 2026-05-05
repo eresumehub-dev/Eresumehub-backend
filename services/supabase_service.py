@@ -299,7 +299,9 @@ class SupabaseService:
             # Check visibility
             if visibility in ["public", "unlisted"]:
                 # Staff+ Update: Force use of absolute proxied PDF endpoint for public sharing (v16.5.11 Fix)
-                resume["pdf_url"] = f"{Config.API_BASE_URL}/api/v1/resume/{resume.get('id')}/pdf"
+                proxy_url = f"{Config.API_BASE_URL}/api/v1/resume/{resume.get('id')}/pdf"
+                logger.info(f"Returning public resume with proxy URL: {proxy_url}")
+                resume["pdf_url"] = proxy_url
                 return resume
             else:
                 logger.warning(f"Public access denied: Resume '{slug}' visibility is '{visibility}'")
