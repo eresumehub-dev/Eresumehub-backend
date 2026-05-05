@@ -36,16 +36,23 @@ class AnalyticsService:
         lock_key = f"refresh_lock_analytics:{user_id}"
         
         async def _run_refresh():
-            # 1. Attempt to acquire the 'recompute lock' (60s throttle)
-            if not await cache_service.set_nx(lock_key, "locked", ttl_seconds=60):
-                logger.info(f"ANALYTICS Refresh Skipped: User {user_id} is within throttle window.")
+            # 1. Attempt to acquire the 'recompute lock' (180s TTL to cover heavy pandas lift)
+            if not await cache_service.set_nx(lock_key, "locked", ttl_seconds=180):
+                logger.info(f"ANALYTICS Refresh Skipped: User {user_id} is already being computed.")
                 return
 
-            # 2. Perform the heavy lift
-            from services.supabase_service import supabase_service
-            service = AnalyticsService(supabase_service)
-            await service.refresh_user_analytics_cache(user_id)
-            logger.info(f"ANALYTICS Background Refresh Completed for user {user_id}")
+            try:
+                # 2. Perform the heavy lift
+                from services.supabase_service import supabase_service
+                service = AnalyticsService(supabase_service)
+                await service.refresh_user_analytics_cache(user_id)
+                logger.info(f"ANALYTICS Background Refresh Completed for user {user_id}")
+            except Exception as e:
+                logger.error(f"ANALYTICS Background Refresh Failed for user {user_id}: {e}")
+            finally:
+                # 3. Explicitly release the lock ONLY after the recompute finishes
+                await cache_service.delete(lock_key)
+                logger.info(f"ANALYTICS Lock Released for user {user_id}")
 
         if background_tasks:
             background_tasks.add_task(_run_refresh)
