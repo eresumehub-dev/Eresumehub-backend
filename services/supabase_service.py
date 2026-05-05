@@ -259,56 +259,41 @@ class SupabaseService:
             return None
     
     async def get_resume_by_slug(self, username: str, slug: str) -> Optional[Dict[str, Any]]:
-        """Get resume by username and slug (public view)"""
+        """
+        Get public resume by username and slug in ONE atomic round-trip.
+        Uses RPC function 'get_public_resume_by_slug' to bypass sequential lookups.
+        """
         try:
-            clean_username = username.strip().lower()
+            clean_username = username.lstrip('@').strip().lower()
             clean_slug = slug.strip().lower()
-            logger.info(f"Public lookup for username: '{clean_username}', slug: '{clean_slug}'")
             
-            # 1. Find the auth_user_id for this username (case-insensitive)
-            # Use 'maybe_single' or check length to avoid exception if not found
-            user_response = await self.client.table("users")\
-                .select("auth_user_id, username")\
-                .ilike("username", clean_username)\
-                .execute()
+            logger.info(f"⚡ RPC Public Lookup: {clean_username}/{clean_slug}")
             
-            if not user_response.data:
-                logger.warning(f"Public lookup failed: User '{clean_username}' not found")
+            # Atomic Join via Supabase RPC (v16.7.0 Optimization)
+            response = await self.client.rpc(
+                'get_public_resume_by_slug', 
+                {'p_username': clean_username, 'p_slug': clean_slug}
+            ).execute()
+            
+            if not response.data:
+                logger.warning(f"Public lookup failed: No resume found for {clean_username}/{clean_slug}")
                 return None
                 
-            user_auth_id = user_response.data[0]["auth_user_id"]
-            actual_username = user_response.data[0]["username"]
-            logger.info(f"User found: {actual_username} (Auth ID: {user_auth_id})")
+            resume = response.data[0]
             
-            # 2. Get the resume for this user Auth ID and slug (case-insensitive)
-            resume_response = await self.client.table("resumes")\
-                .select("*")\
-                .eq("user_id", user_auth_id)\
-                .ilike("slug", clean_slug)\
-                .is_("deleted_at", "null")\
-                .execute()
-            
-            if not resume_response.data:
-                logger.warning(f"Public lookup failed: No resume found with slug '{clean_slug}' for user_id '{user_auth_id}'")
-                return None
-                
-            resume = resume_response.data[0]
-            visibility = resume.get("visibility", "private")
-            logger.info(f"Resume found: {resume['id']} | Title: {resume['title']} | Visibility: {visibility} | Stored URL: {resume.get('pdf_url')}")
-            
-            # Check visibility
-            if visibility in ["public", "unlisted"]:
-                # Staff+ Update: Force use of absolute proxied PDF endpoint for public sharing (v16.5.11 Fix)
-                proxy_url = f"{Config.API_BASE_URL}/api/v1/resume/{resume.get('id')}/pdf"
-                logger.info(f"Returning public resume with proxy URL: {proxy_url}")
-                resume["pdf_url"] = proxy_url
-                return resume
+            # Performance Fix: Bypass proxy for direct CDN access
+            stored_url = resume.get('pdf_url', '')
+            if stored_url and stored_url.startswith('http') and 'supabase.co/storage' in stored_url:
+                logger.info(f"Bypassing proxy for public resume {resume['id']} (Direct CDN)")
+                resume["pdf_url"] = stored_url
             else:
-                logger.warning(f"Public access denied: Resume '{slug}' visibility is '{visibility}'")
-                return None
+                proxy_url = f"{Config.API_BASE_URL}/api/v1/resume/{resume.get('id')}/pdf"
+                resume["pdf_url"] = proxy_url
+                
+            return resume
             
         except Exception as e:
-            logger.error(f"Error in get_resume_by_slug: {str(e)}")
+            logger.error(f"Error in get_resume_by_slug RPC: {str(e)}")
             return None
     
     async def update_resume(self, resume_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:

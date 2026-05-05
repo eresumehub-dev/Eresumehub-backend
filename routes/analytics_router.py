@@ -83,7 +83,7 @@ async def log_view(request: Request, background_tasks: BackgroundTasks, view_dat
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.post("/view/{view_id}/heartbeat")
-async def view_heartbeat(view_id: str, data: Dict[str, Any] = Body(...)):
+async def view_heartbeat(view_id: str, data: Any = Body(...)):
     """Update duration and behavioral signals (Legacy -> V12 Wrapper)"""
     try:
         success = await supabase_service.update_view_duration(view_id, data)
