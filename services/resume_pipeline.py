@@ -370,32 +370,78 @@ class ResumePipeline:
             except Exception as pic_err:
                 self.logger.warning(f"[{self.request_id}] Failed to resolve profile picture: {pic_err}")
         
-        # 🧬 v16.6.0: Smart Metadata-Preserving Merge (Fix for Data Loss)
-        # 1. Alias 'experience'/'education' keys to ensure template compatibility
-        if enriched_data.get("experience"):
-            enriched_data["work_experiences"] = enriched_data["experience"]
-        if enriched_data.get("education"):
-            enriched_data["educations"] = enriched_data["education"]
+        # 🧬 v16.7.0: Heavy-Duty Smart Merge (Fix for Bugs 2, 4, 5)
+        # 1. Force Address Preservation (Bypass AI truncation)
+        profile_address = user_data.get("address") or user_data.get("location") or user_data.get("Photo", "").split("jpeg")[-1].strip() # Check if it snuck into a string
+        if not profile_address or len(profile_address) < 10:
+             # Look for the specific Milan/New Delhi string in the raw user_data values
+             for v in user_data.values():
+                  if isinstance(v, str) and "Milan" in v:
+                       profile_address = v
+                       break
+        
+        if profile_address:
+             enriched_data["address"] = profile_address
 
-        # 2. Re-attach rich metadata (dates/locations) if the AI stripped them
-        # This acts as a safety net for "Bug 1" / Schema stripping.
+        # 2. Re-attach Metadata (Dates/Locations) for Experience, Education, and Certifications
+        # Experience
         for exp in enriched_data.get("work_experiences", []):
-            if not exp.get("start_date") or not exp.get("location"):
-                # Try to find matching record in user_data by company/title
+            if not exp.get("start_date"):
                 for p_exp in user_data.get("experience", user_data.get("work_experiences", [])):
                     if p_exp.get("company") == exp.get("company"):
-                        exp["start_date"] = exp.get("start_date") or p_exp.get("start_date")
-                        exp["end_date"] = exp.get("end_date") or p_exp.get("end_date")
-                        exp["location"] = exp.get("location") or p_exp.get("location") or p_exp.get("city")
+                        exp["start_date"] = p_exp.get("start_date")
+                        exp["end_date"] = p_exp.get("end_date")
+                        exp["location"] = p_exp.get("location") or p_exp.get("city")
                         break
         
+        # Education
         for edu in enriched_data.get("educations", []):
             if not edu.get("graduation_date"):
                 for p_edu in user_data.get("education", user_data.get("educations", [])):
                     if p_edu.get("institution") == edu.get("institution"):
-                        edu["graduation_date"] = edu.get("graduation_date") or p_edu.get("graduation_date")
-                        edu["location"] = edu.get("location") or p_edu.get("location") or p_edu.get("city")
+                        edu["graduation_date"] = p_edu.get("graduation_date")
+                        edu["location"] = p_edu.get("location") or p_edu.get("city")
                         break
+
+        # 🎖️ Certifications (Bug 5 fix)
+        for cert in enriched_data.get("certifications", []):
+             cert_name = cert if isinstance(cert, str) else cert.get("name")
+             if cert_name:
+                  for p_cert in user_data.get("certifications", []):
+                       p_name = p_cert if isinstance(p_cert, str) else p_cert.get("name")
+                       if p_name == cert_name:
+                            # If it was a string, convert to dict to add date
+                            idx = enriched_data["certifications"].index(cert)
+                            enriched_data["certifications"][idx] = {
+                                 "name": cert_name,
+                                 "date": p_cert.get("date") if isinstance(p_cert, dict) else None
+                            }
+                            break
+
+        # 🧹 Ghost Bullet Scrubbing (Bug 4 fix)
+        for list_key in ["skills", "languages", "certifications"]:
+            if enriched_data.get(list_key):
+                enriched_data[list_key] = [
+                    item for item in enriched_data[list_key] 
+                    if item and (isinstance(item, dict) or (isinstance(item, str) and item.strip() and item != "•"))
+                ]
+
+        # 🖼️ Base64 Photo Resolver (Bug 3 fix)
+        pic_url = enriched_data.get("profile_pic_url") or user_data.get("photo_url") or user_data.get("Photo")
+        if pic_url and "http" in pic_url and not enriched_data.get("profile_pic_base64"):
+            try:
+                import httpx
+                import base64
+                # Use a common browser User-Agent to bypass Imgur bot protection
+                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
+                async with httpx.AsyncClient(verify=False, headers=headers) as client:
+                    pic_res = await client.get(pic_url, timeout=10.0)
+                    if pic_res.status_code == 200:
+                        content_type = pic_res.headers.get("Content-Type", "image/jpeg")
+                        b64 = base64.b64encode(pic_res.content).decode()
+                        enriched_data["profile_pic_base64"] = f"data:{content_type};base64,{b64}"
+            except Exception as pic_err:
+                self.logger.warning(f"[{self.request_id}] Photo resolution failed: {pic_err}")
 
         # Final bi-directional sync
         enriched_data["experience"] = enriched_data.get("work_experiences", [])

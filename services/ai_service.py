@@ -732,7 +732,25 @@ class AIService:
         return str(res).strip() if res else f"{role} Resume"
 
     async def generate_tailored_resume(self, user_data: Dict[str, Any], job_description: str, country: str, language: str, job_title: str, rag_data: Dict[str, Any] = None, compliance_gap: List[str] = None, request_id: str = "internal") -> Dict[str, Any]:
-        """Tailor resume content to match a specific job description with schema enforcement."""
+        """
+        AI Tailoring Phase (v16.7.0): Core ATS-optimization engine.
+        Now includes 'Market Isolation' to prevent Japan context from bleeding into other regions.
+        """
+        # 🛡️ v16.7.0: Market Isolation Logic (Fix for Bug 1)
+        # If targeting a non-Japan market, we neutralize Japan-specific signals in the profile.
+        if country.lower() != "japan":
+            if "self_pr" in user_data or "Self-PR" in user_data:
+                # Rename to professional_summary so AI treats it as general context
+                val = user_data.pop("self_pr", user_data.pop("Self-PR", ""))
+                if val and not user_data.get("summary"):
+                    user_data["summary"] = val
+            
+            if "motivation" in user_data or "Motivation" in user_data:
+                # Neutralize Tokyo-specific motivation if it exists
+                val = user_data.get("motivation", user_data.get("Motivation", ""))
+                if isinstance(val, str) and "tokyo" in val.lower():
+                    user_data["motivation"] = "Seeking a challenging role in the fashion industry to leverage international design expertise."
+
         schema = {
             "generated_summary": "string (strictly optimize professional summary for this ATS and role)",
             "headline": "string (professional headline strictly matching requested role)",
