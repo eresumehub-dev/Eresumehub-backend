@@ -980,58 +980,59 @@ class AIService:
         Pre-prompt sanitization: remove or neutralize country-specific content
         that does not match the target market.
 
-        This runs BEFORE the AI sees the data — deterministic, not prompt-reliant.
-
-        Current rules:
-          - If target is NOT Japan: remove Self-PR, Motivation (志望動機), and any
-            summary/motivation text that references "Tokyo", "Japanese market",
-            "Japanese craftsmanship" as a career goal (vs a factual work bullet).
-          - The user's professional_summary (skills-based) is preserved.
-          - Factual experience bullets mentioning Japan clients/manufacturers are
-            preserved — only career-goal text is stripped.
-
-        v16.6.3 — new method.
+        v16.6.4 Update: Added recursive cleaning for nested profile_extras 
+        to catch "Self-PR" text hiding in sub-tables.
         """
+
         import copy
         data = copy.deepcopy(user_data)
 
         japan_target_phrases = [
             "tokyo", "japanese market", "japanese craftsmanship",
-            "luxury apparel brand in tokyo", "contribute to a leading luxury",
+            "luxury apparel brand", "brand in tokyo", "apparel brand in tokyo",
             "japanese aesthetics", "志望動機", "自己pr",
         ]
 
+
         is_japan_target = target_country.lower() in ("japan", "日本")
 
+        def _recursive_clean(obj: Any):
+            if isinstance(obj, dict):
+                # 1. Strip Japan-specific keys
+                for key in list(obj.keys()):
+                    if key.lower() in (
+                        "self_pr", "self-pr", "motivation", "jiboukei", 
+                        "志望動機", "自己pr", "career_goal", "career_objective"
+                    ):
+                        obj.pop(key)
+                        continue
+                    
+                    # 2. Check string values for Japan-specific goals
+                    val = obj[key]
+                    if isinstance(val, str) and any(p in val.lower() for p in japan_target_phrases):
+                        # If it's a summary/objective field, wipe it
+                        if key.lower() in ("summary", "professional_summary", "description", "headline"):
+                            obj[key] = ""
+                    
+                    # 3. Recurse
+                    _recursive_clean(val)
+            elif isinstance(obj, list):
+                for item in obj:
+                    _recursive_clean(item)
+
         if not is_japan_target:
-            # 1. Remove dedicated Japan-market fields
-            for key in ("self_pr", "Self-PR", "motivation", "Motivation",
-                        "jiboukei", "志望動機", "自己PR"):
-                data.pop(key, None)
-
-            # 2. If the user's summary is Japan-targeted, fall back to the
-            #    skills-based professional_summary instead.
-            #    We detect "Japan targeting" by checking for goal phrases.
-            summary_field = data.get("summary", "")
-            if summary_field and any(
-                phrase in summary_field.lower() for phrase in japan_target_phrases
-            ):
-                # Use the professional_summary field if available (skills-based)
-                alt_summary = data.get("professional_summary", "")
-                if alt_summary and alt_summary.strip():
-                    data["summary"] = alt_summary
-                else:
-                    # Wipe it — let the AI generate a fresh one from experience
-                    data["summary"] = ""
-
-            # 3. Same check for any "professional_summary" key that is Japan-targeted
-            prof_summary = data.get("professional_summary", "")
-            if prof_summary and any(
-                phrase in prof_summary.lower() for phrase in japan_target_phrases
-            ):
-                data["professional_summary"] = ""
+            _recursive_clean(data)
+            
+            # Final Safety: If top-level summary was wiped, try to restore 
+            # from a generic fallback if the AI needs it, otherwise leave empty.
+            # (The AI will generate a fresh one from work history if empty).
+            if not data.get("summary") and user_data.get("professional_summary"):
+                # Only restore if the professional_summary doesn't also have Japan phrases
+                if not any(p in user_data["professional_summary"].lower() for p in japan_target_phrases):
+                    data["summary"] = user_data["professional_summary"]
 
         return data
+
 
 # Global instance
 ai_service = AIService()

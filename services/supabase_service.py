@@ -293,10 +293,12 @@ class SupabaseService:
                 
             resume = resume_response.data[0]
             visibility = resume.get("visibility", "private")
-            logger.info(f"Resume found: {resume['id']} | Title: {resume['title']} | Visibility: {visibility}")
+            logger.info(f"Resume found: {resume['id']} | Title: {resume['title']} | Visibility: {visibility} | Stored URL: {resume.get('pdf_url')}")
             
             # Check visibility
             if visibility in ["public", "unlisted"]:
+                # Staff+ Update: Force use of proxied PDF endpoint for public sharing
+                resume["pdf_url"] = f"/api/v1/resume/{resume.get('id')}/pdf"
                 return resume
             else:
                 logger.warning(f"Public access denied: Resume '{slug}' visibility is '{visibility}'")
@@ -557,6 +559,7 @@ class SupabaseService:
         """Upload resume PDF to storage with robust conflict handling"""
         try:
             path = f"{user_id}/{resume_id}/{filename}"
+            logger.info(f"Uploading PDF for user {user_id}, resume {resume_id} to path: {path}")
             
             # Try upload with upsert
             try:

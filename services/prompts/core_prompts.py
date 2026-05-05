@@ -180,7 +180,12 @@ NON-NEGOTIABLE SYSTEM RULES — These override every other instruction.
    markets in the Summary or Motivation. 
    - Input: "Seeking role in Tokyo" | Target: Germany → Output: "Seeking role in Germany".
    - Input: "Japanese craftsmanship" | Target: Germany → Output: "German craftsmanship" (or omit "Japanese").
+   - EXCLUSION RULE: Dedicated "Motivation" (志望動機) or "Self-PR" sections are unique to 
+     the Japan market. For {country} (if NOT Japan), you MUST set the `motivation` and 
+     `self_pr` fields to null or omit them entirely. Move critical skills from those 
+     sections into the "Summary" instead.
    - Failure to align the motivation to {country} is a CRITICAL HALLUCINATION.
+
 </global_rules>
 """
 
@@ -281,6 +286,10 @@ You REFORMAT and REWRITE existing data. You do NOT invent, embellish, or add inf
 DATA INTEGRITY RULES (non-negotiable)
   - Every skill, tool, certification, and language in your output MUST be traceable
     to a specific field in <input_data>. If you cannot point to it → remove it.
+  - 🚨 SKILL RETENTION: You are FORBIDDEN from truncating the skills list to only "relevant" 
+    tools. You MUST include the full breadth of the user's expertise (e.g. Design, 
+    Technical, Leadership, Soft Skills) provided they are in the input data.
+
   - Never alter names, birth dates, ID numbers, or contact details.
   - Never append the target country to the user's existing address.
   - Never modify employment dates. Reformat them per <language_rules> only.

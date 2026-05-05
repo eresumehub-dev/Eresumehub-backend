@@ -362,15 +362,48 @@ class ResumePipeline:
             "score": 0
         }
 
-        # ── FIX 1: Address — always re-inject original, unconditionally ──
-        # Do this AFTER merge so it can never be overwritten by generated_data.
-        original_address = (
-            user_data.get("address")
-            or user_data.get("location")
-            or user_data.get("city")
-        )
-        if original_address:
-            enriched_data["address"] = original_address
+        # ── FIX 1: Address — Longest String Wins (v16.6.5) ───────────────
+        # Users often have partial addresses in request data that overwrite
+        # full addresses in the DB. We find the most complete version.
+        address_candidates = [
+            user_data.get("address"),
+            user_data.get("location"),
+            user_data.get("city"),
+            user_data.get("contact", {}).get("city")
+        ]
+        # Filter nulls and find longest
+        valid_candidates = [str(a) for a in address_candidates if a and str(a).strip()]
+        if valid_candidates:
+            best_address = sorted(valid_candidates, key=len, reverse=True)[0]
+            enriched_data["address"] = best_address
+            # Sync to contact.city as well for templates that use it
+
+            if "contact" not in enriched_data: enriched_data["contact"] = {}
+            enriched_data["contact"]["city"] = best_address
+
+
+        # ── FIX 5: Skill Retention — No-Loss Merge (v16.6.6) ─────────────
+        # AI often drops "soft" skills. We merge generated skills with original
+        # skills, keeping generated ones first (for JD-relevance) but ensuring
+        # zero data loss.
+        original_skills = user_data.get("skills", [])
+        if not isinstance(original_skills, list): original_skills = []
+        
+        generated_skills = generated_data.get("skills", [])
+        if not isinstance(generated_skills, list): generated_skills = []
+
+        # Deduplicate while preserving order (Generated first, then remaining originals)
+        seen = set()
+        merged_skills = []
+        for s in (generated_skills + original_skills):
+            s_clean = str(s).strip()
+            if s_clean and s_clean.lower() not in seen:
+                merged_skills.append(s)
+                seen.add(s_clean.lower())
+        
+        enriched_data["skills"] = merged_skills
+
+
 
         # ── FIX 2: Photo — multi-key fallback + Imgur 403 handling ───────
         pic_url = (
@@ -387,38 +420,36 @@ class ResumePipeline:
                 import httpx, base64
                 async with httpx.AsyncClient(
                     headers={
-                        # Pretend to be a browser — Imgur blocks python-httpx user-agents
                         "User-Agent": (
                             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                             "AppleWebKit/537.36 (KHTML, like Gecko) "
                             "Chrome/124.0.0.0 Safari/537.36"
-                        ),
-                        "Referer": "https://eresumehub.com",
+                        )
+                        # Referer removed — often causes 403 on Imgur
                     },
                     follow_redirects=True,
-                    timeout=8.0
+                    timeout=10.0
                 ) as client:
                     pic_res = await client.get(pic_url)
+
+                    # ── Imgur / 403 Proxy Bypass ─────────────────────────────
+                    if pic_res.status_code != 200:
+                        self.logger.info(f"[{self.request_id}] Photo fetch blocked ({pic_res.status_code}). Attempting proxy-bypass...")
+                        proxy_url = f"https://images.weserv.nl/?url={pic_url.replace('https://', '').replace('http://', '')}"
+                        pic_res = await client.get(proxy_url)
 
                     if pic_res.status_code == 200:
                         content_type = pic_res.headers.get("Content-Type", "image/jpeg")
                         b64 = base64.b64encode(pic_res.content).decode()
                         enriched_data["profile_pic_base64"] = f"data:{content_type};base64,{b64}"
-                        self.logger.info(f"[{self.request_id}] Profile picture resolved to Base64.")
-                    elif pic_res.status_code == 403:
-                        # Imgur hotlink protection — store raw URL so template
-                        # can still attempt direct <img src="">
-                        self.logger.warning(
-                            f"[{self.request_id}] Photo 403 (hotlink blocked): {pic_url}. "
-                            f"Storing raw URL as fallback."
-                        )
-                        enriched_data["profile_pic_url"] = pic_url
+                        self.logger.info(f"[{self.request_id}] Profile picture resolved via proxy.")
                     else:
                         self.logger.warning(
-                            f"[{self.request_id}] Photo fetch failed "
+                            f"[{self.request_id}] Photo fetch failed even via proxy "
                             f"({pic_res.status_code}): {pic_url}"
                         )
-                        enriched_data["profile_pic_url"] = pic_url  # fallback
+                        enriched_data["profile_pic_url"] = pic_url  # Last resort: raw URL
+
             except Exception as pic_err:
                 self.logger.warning(
                     f"[{self.request_id}] Failed to resolve profile picture: {pic_err}"
@@ -469,15 +500,31 @@ class ResumePipeline:
                 if not edu.get("location"):
                     edu["location"] = src.get("location") or src.get("city") or ""
 
-        # ── FIX 3: Ghost bullet scrubbing ────────────────────────────────
+        # ── FIX 3: Ghost bullet scrubbing (v16.6.5 Hardened) ─────────────
         # Remove empty strings / None / whitespace-only entries from all list fields.
-        # This stops the template from rendering empty bullet points.
         for field_name in ("certifications", "skills"):
             raw_list = enriched_data.get(field_name, [])
             enriched_data[field_name] = [
                 item for item in raw_list
                 if isinstance(item, str) and item.strip()
             ]
+
+        # Deep scrub experience achievements (The most common ghost-bullet source)
+        for exp in enriched_data.get("experience", enriched_data.get("work_experiences", [])):
+            if "achievements" in exp and isinstance(exp["achievements"], list):
+                exp["achievements"] = [
+                    a for a in exp["achievements"] 
+                    if isinstance(a, str) and a.strip()
+                ]
+
+        # Deep scrub education achievements
+        for edu in enriched_data.get("education", enriched_data.get("educations", [])):
+            if "achievements" in edu and isinstance(edu["achievements"], list):
+                edu["achievements"] = [
+                    a for a in edu["achievements"] 
+                    if isinstance(a, str) and a.strip()
+                ]
+
 
         # Languages can be dicts or strings — scrub both
         raw_languages = enriched_data.get("languages", [])
@@ -501,6 +548,29 @@ class ResumePipeline:
             enriched_data["educations"] = enriched_data["education"]
         elif enriched_data.get("educations"):
             enriched_data["education"] = enriched_data["educations"]
+
+        # ── Step 5: Bi-directional key aliasing ──────────────────────────
+        # Templates expect both "experience"/"work_experiences" and
+        # "education"/"educations" — populate both.
+        if enriched_data.get("experience"):
+            enriched_data["work_experiences"] = enriched_data["experience"]
+        elif enriched_data.get("work_experiences"):
+            enriched_data["experience"] = enriched_data["work_experiences"]
+
+        if enriched_data.get("education"):
+            enriched_data["educations"] = enriched_data["education"]
+        elif enriched_data.get("educations"):
+            enriched_data["education"] = enriched_data["educations"]
+
+        # ── FINAL STEP: Market-Field Stripping (v16.6.7) ─────────────────
+        # Even if the AI omitted "Motivation", it might still exist in 
+        # the raw user_data that was merged. We strip it again so the 
+        # HTML template never renders it for non-Japan markets.
+        enriched_data = self.ai_service._sanitize_country_specific_fields(
+            enriched_data, 
+            country
+        )
+
 
         return resume_autocorrect.autocorrect_for_country(enriched_data, country), generated_data
 
