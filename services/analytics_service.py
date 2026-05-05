@@ -19,9 +19,22 @@ class AnalyticsService:
         self.supabase = supabase_service
 
     @classmethod
-    def invalidate_user_cache(cls, user_id: str):
+    async def invalidate_user_cache(cls, user_id: str):
         """Invalidate the DB cache and enqueue a refresh (v15.1.0)"""
-        # Note: We'll call this from mutations. It triggers an async background recompute.
+        # 🛡️ Staff+ Hardening (v16.5.11): Explicitly delete the cache record
+        # This ensures that any subsequent fetch will see a cache MISS and 
+        # return empty state until the background recompute finishes.
+        try:
+            from services.supabase_service import supabase_service
+            await supabase_service.client.table("user_analytics_cache")\
+                .delete()\
+                .eq("user_id", user_id)\
+                .execute()
+            logger.info(f"ANALYTICS Cache Record DELETED for user {user_id}")
+        except Exception as e:
+            logger.error(f"Failed to delete analytics cache record: {e}")
+
+        # Trigger background recompute
         cls.enqueue_refresh(user_id)
         logger.info(f"ANALYTICS Cache Invalidation Enqueued for user {user_id}")
 

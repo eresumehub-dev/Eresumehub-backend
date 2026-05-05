@@ -57,7 +57,7 @@ class ResumeService:
             # 2. Cache Invalidation Burst (v10.0.0)
             if user_id:
                 await ProfileService.invalidate_cache(user_id)
-                AnalyticsService.invalidate_user_cache(user_id)
+                await AnalyticsService.invalidate_user_cache(user_id)
 
             return updated_resume
             
@@ -111,7 +111,7 @@ class ResumeService:
             
             # Cache Invalidation Burst (v10.0.0)
             await ProfileService.invalidate_cache(source_resume["user_id"])
-            AnalyticsService.invalidate_user_cache(source_resume["user_id"])
+            await AnalyticsService.invalidate_user_cache(source_resume["user_id"])
 
             logger.info(f"Resume {resume_id} cloned to {cloned_resume['id']}")
             return cloned_resume
@@ -239,7 +239,7 @@ class ResumeService:
             # Cache Invalidation Burst (v10.0.0)
             if user_id:
                 await ProfileService.invalidate_cache(user_id)
-                AnalyticsService.invalidate_user_cache(user_id)
+                await AnalyticsService.invalidate_user_cache(user_id)
 
             logger.info(f"Score {score} updated for resume {resume_id}")
             return {
@@ -268,7 +268,7 @@ class ResumeService:
             # Cache Invalidation (v10.0.0)
             if user_id:
                 await ProfileService.invalidate_cache(user_id)
-                AnalyticsService.invalidate_user_cache(user_id)
+                await AnalyticsService.invalidate_user_cache(user_id)
 
             logger.info(f"Resume {resume_id} archived")
             return True
@@ -297,7 +297,7 @@ class ResumeService:
             # 3. Cache Invalidation Burst (v10.0.0)
             if success:
                 await ProfileService.invalidate_cache(user_id)
-                AnalyticsService.invalidate_user_cache(user_id)
+                await AnalyticsService.invalidate_user_cache(user_id)
 
             logger.info(f"Resume {resume_id} deleted successfully for user {user_id}")
             return success
@@ -323,7 +323,7 @@ class ResumeService:
             # Cache Invalidation (v10.0.0)
             if user_id:
                 await ProfileService.invalidate_cache(user_id)
-                AnalyticsService.invalidate_user_cache(user_id)
+                await AnalyticsService.invalidate_user_cache(user_id)
 
             logger.info(f"Resume {resume_id} restored")
             return True
@@ -356,7 +356,7 @@ class ResumeService:
             
             # Cache Invalidation (v15.1.0 Deterministic)
             await ProfileService.invalidate_cache(user_id)
-            AnalyticsService.invalidate_user_cache(user_id)
+            await AnalyticsService.invalidate_user_cache(user_id)
 
             logger.info(f"Resume {resume_id} set as default for user {user_id} via RPC")
             return True

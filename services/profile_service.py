@@ -347,7 +347,7 @@ class ProfileService:
                 await self.invalidate_cache(user_id)
 
             from services.analytics_service import AnalyticsService
-            AnalyticsService.invalidate_user_cache(user_id)
+            await AnalyticsService.invalidate_user_cache(user_id)
 
             logger.info(f"Profile for user {user_id} created/updated")
             return profile_payload

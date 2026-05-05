@@ -11,6 +11,7 @@ from services.profile_service import ProfileService
 from services.ai_service import ai_service
 from services.rag_service import RAGService
 from services.resume_autocorrect import resume_autocorrect
+from services.analytics_service import AnalyticsService
 from utils.resume_validator import ResumeComplianceValidator
 from utils.pdf_utils import html_to_pdf
 from utils.html_generator import HTMLGenerator
@@ -662,6 +663,7 @@ class ResumePipeline:
             # We must clear the dashboard bootstrap cache so the new resume appears immediately.
             try:
                 await ProfileService.invalidate_cache(user_id)
+                await AnalyticsService.invalidate_user_cache(user_id)
                 self.logger.info(f"[{self.request_id}] Cache invalidated for user {user_id}")
             except Exception as cache_err:
                 self.logger.warning(f"[{self.request_id}] Cache invalidation failed (non-fatal): {cache_err}")

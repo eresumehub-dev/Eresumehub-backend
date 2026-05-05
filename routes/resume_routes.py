@@ -260,6 +260,8 @@ async def update_resume(
     
     # Cache Invalidation Burst (v16.0.0 Alignment)
     await ProfileService.invalidate_cache(user_id)
+    from services.analytics_service import AnalyticsService
+    await AnalyticsService.invalidate_user_cache(user_id)
     
     return {"success": True, "data": updated}
 
