@@ -112,6 +112,10 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Infrastructure Warmup Partially Failed: {e}")
 
+    # 7. Connectivity Audit (v16.5.12)
+    if "localhost" in Config.API_BASE_URL and Config.ENVIRONMENT == "production":
+        logger.warning(f"🚨 PRODUCTION ALERT: API_BASE_URL is set to '{Config.API_BASE_URL}'. Public share links may fail unless this is intentional.")
+
     logger.info(f"🚀 Total Startup Latency: {(time.perf_counter() - boot_start)*1000:.2f}ms (Target: <500ms)")
     yield
     from services.telemetry_service import telemetry_service
