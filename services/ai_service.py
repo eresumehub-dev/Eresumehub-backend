@@ -1034,5 +1034,36 @@ class AIService:
         return data
 
 
+    async def refine_resume_section(self, selected_text: str, instruction: str, context: str = "", request_id: str = "refine") -> Optional[str]:
+        """
+        AI-powered text refinement (v16.5.0): Refine a specific block of text based on user instructions.
+        """
+        prompt = f"""
+        Role: Expert Resume Editor.
+        Task: Refine the following text based on the user's specific instruction.
+        
+        TEXT TO REFINE:
+        "{selected_text}"
+        
+        USER INSTRUCTION:
+        "{instruction}"
+        
+        CONTEXT (Optional):
+        "{context}"
+        
+        Requirements:
+        1. Keep the output professional and ATS-friendly.
+        2. Preserve the original meaning unless the instruction says otherwise.
+        3. Output ONLY the refined text. No commentary, no preamble, no quotes.
+        """
+        
+        try:
+            # Use Gemini Flash for speed
+            result = await self.call_api(prompt, temperature=0.7, max_tokens=1000, request_id=request_id)
+            return result.strip().strip('"') if result else None
+        except Exception as e:
+            logger.error(f"[{request_id}] Text refinement failed: {e}")
+            return None
+
 # Global instance
 ai_service = AIService()

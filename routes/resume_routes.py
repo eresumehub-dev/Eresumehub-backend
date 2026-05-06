@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, HTTPException, Depends, UploadFile, File, Form, status, BackgroundTasks
+from fastapi import APIRouter, Request, HTTPException, Depends, UploadFile, File, Form, status, BackgroundTasks, Body
 from typing import List, Optional, Dict, Any, Union
 import uuid
 import time
@@ -13,6 +13,7 @@ from services.resume_service import resume_service
 from services.resume_pipeline import ResumePipeline, PipelineError
 from services.profile_service import ProfileService
 from services.ai_service import ai_service
+from services.ai_enhancement_service import ai_enhancement_service
 from schemas.resume_schemas import (
     CreateResumeRequest, UpdateResumeRequest, RefineRequest, APIResponse
 )
@@ -22,6 +23,9 @@ router = APIRouter(prefix="/api/v1", tags=["Resumes"])
 logger = logging.getLogger(__name__)
 
 from fastapi.concurrency import run_in_threadpool
+from utils.background_utils import safe_background_task
+import uuid
+
 
 @router.post("/resume/create", response_model=Dict[str, Any])
 async def create_new_resume(
@@ -109,7 +113,6 @@ async def create_new_resume(
         job_data["action"] = "create"
         
         # Dispatch to FastAPI BackgroundTasks
-        from utils.background_utils import safe_background_task
         background_tasks.add_task(
             safe_background_task,
             ResumePipeline.run_for_user,
@@ -122,6 +125,7 @@ async def create_new_resume(
             data=job_data,
             job_id=job_id
         )
+
 
         return {
             "success": True, 
@@ -163,7 +167,6 @@ async def improve_existing_resume(
         text = result["text"]
         
         #  Dispatch to FastAPI BackgroundTasks
-        from utils.background_utils import safe_background_task
         background_tasks.add_task(
             safe_background_task,
             ResumePipeline.run_for_user,
@@ -181,6 +184,7 @@ async def improve_existing_resume(
             },
             job_id=job_id
         )
+
 
         return {
             "success": True, 
@@ -205,6 +209,72 @@ async def get_resume_detail(resume_id: str, user_id: str = Depends(get_current_u
         raise HTTPException(status_code=404, detail="Resume not found")
     return {"success": True, "data": resume}
 
+@router.get("/resumes/{resume_id}/score-history")
+async def get_resume_score_history(
+    resume_id: str,
+    limit: int = 10,
+    user_id: str = Depends(get_current_user_id)
+):
+    """Fetch ATS score history for a resume."""
+    resume = await supabase_service.get_resume(resume_id)
+    if not resume or resume.get("user_id") != user_id:
+        raise HTTPException(status_code=404, detail="Resume not found")
+
+    scores = await resume_service.get_score_history(resume_id, limit)
+    return {"success": True, "data": scores}
+
+
+@router.post("/resume/{resume_id}/enhance")
+async def enhance_resume_route(
+    resume_id: str,
+    background_tasks: BackgroundTasks,
+    request: Request,
+    user_id: str = Depends(get_current_user_id)
+):
+    """Trigger AI enhancement on an existing resume's content."""
+    request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
+
+    resume = await supabase_service.get_resume(resume_id)
+    if not resume or resume.get("user_id") != user_id:
+        raise HTTPException(status_code=404, detail="Resume not found")
+
+    user_ctx = {"auth_user_id": user_id}
+
+    try:
+        job = await supabase_service.create_job(user_id)
+        job_id = job["id"]
+
+        background_tasks.add_task(
+            safe_background_task,
+            ResumePipeline.run_for_user,
+            request_id=request_id,
+            profile_service=ProfileService(supabase_service),
+            ai_service=ai_service,
+            supabase_service=supabase_service,
+            analytics_service=request.app.state.analytics_service,
+            user=user_ctx,
+            data={
+                "action": "enhance",
+                "resume_id": resume_id,
+                "resume_data": resume.get("resume_data", {}),
+                "country": resume.get("country", "Germany"),
+                "language": resume.get("language", "English"),
+            },
+            job_id=job_id
+        )
+
+        return {
+            "success": True,
+            "job_id": job_id,
+            "message": "Enhancement started in background"
+        }
+    except Exception as e:
+        logger.error(f"[{request_id}] Enhance dispatch failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to start enhancement")
+
+
+
+
 @router.get("/public/resumes/{username}/{slug}")
 async def get_public_resume(username: str, slug: str):
     """Fetch a public resume by username and slug (no auth required)."""
@@ -215,6 +285,7 @@ async def get_public_resume(username: str, slug: str):
 
 @router.delete("/resumes/{resume_id}")
 async def delete_resume_route(resume_id: str, user_id: str = Depends(get_current_user_id)):
+
     """Soft delete a resume with atomic ownership validation and cache locking."""
     try:
         # 1. Perform atomic delete (ownership is verified inside the query)
@@ -235,6 +306,8 @@ async def delete_resume_route(resume_id: str, user_id: str = Depends(get_current
 
 @router.patch("/resumes/{resume_id}")
 async def update_resume(
+
+
     resume_id: str,
     data: UpdateResumeRequest,
     user_id: str = Depends(get_current_user_id)
@@ -278,3 +351,131 @@ async def set_default_resume_route(
         
     success = await resume_service.set_default_resume(user_id, resume_id)
     return {"success": success}
+
+@router.post("/resumes/{resume_id}/archive")
+async def archive_resume_route(
+    resume_id: str,
+    user_id: str = Depends(get_current_user_id)
+):
+    """Archive (soft-delete) a resume."""
+    resume = await supabase_service.get_resume(resume_id)
+    if not resume or resume.get("user_id") != user_id:
+        raise HTTPException(status_code=404, detail="Resume not found")
+
+    try:
+        success = await resume_service.archive_resume(resume_id)
+        return {"success": success}
+    except Exception as e:
+        logger.error(f"Archive failed: {e}")
+        raise HTTPException(status_code=500, detail="Archive failed")
+
+
+@router.post("/resumes/{resume_id}/restore")
+async def restore_resume_route(
+    resume_id: str,
+    user_id: str = Depends(get_current_user_id)
+):
+    """Restore an archived resume."""
+    resume = await supabase_service.get_resume(resume_id, include_archived=True)
+    if not resume or resume.get("user_id") != user_id:
+        raise HTTPException(status_code=404, detail="Resume not found")
+
+    try:
+        success = await resume_service.restore_resume(resume_id)
+        return {"success": success}
+    except Exception as e:
+        logger.error(f"Restore failed: {e}")
+        raise HTTPException(status_code=500, detail="Restore failed")
+
+
+@router.post("/resumes/{resume_id}/clone")
+async def clone_resume_route(
+    resume_id: str,
+    data: dict = {},
+    user_id: str = Depends(get_current_user_id)
+):
+    """Clone an existing resume."""
+    resume = await supabase_service.get_resume(resume_id)
+    if not resume or resume.get("user_id") != user_id:
+        raise HTTPException(status_code=404, detail="Resume not found")
+
+    try:
+        cloned = await resume_service.clone_resume(resume_id, data.get("title"))
+        return {"success": True, "data": cloned}
+    except Exception as e:
+        logger.error(f"Clone failed: {e}")
+        raise HTTPException(status_code=500, detail="Clone failed")
+
+
+@router.post("/resumes/{resume_id}/version")
+async def create_version_route(
+    resume_id: str,
+    user_id: str = Depends(get_current_user_id)
+):
+    """Save a version snapshot of the current resume state."""
+    resume = await supabase_service.get_resume(resume_id)
+    if not resume or resume.get("user_id") != user_id:
+        raise HTTPException(status_code=404, detail="Resume not found")
+
+    try:
+        version = await resume_service.create_version(resume_id)
+        return {"success": True, "data": version}
+    except Exception as e:
+        logger.error(f"Version creation failed: {e}")
+        raise HTTPException(status_code=500, detail="Version creation failed")
+
+
+
+@router.post("/resume/refine")
+async def refine_resume_text(
+    request: Request,
+    data: RefineRequest,
+    user_id: str = Depends(get_current_user_id)
+):
+    """
+    AI-powered inline text refinement for the Resume Editor.
+    Accepts selected text + instruction, returns the refined replacement.
+    """
+    request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
+
+    # 1. Ownership check
+    resume = await supabase_service.get_resume(data.resumeId)
+    if not resume or resume.get("user_id") != user_id:
+        raise HTTPException(status_code=404, detail="Resume not found")
+
+    # 2. Build targeted prompt
+    prompt = f"""You are an expert resume writer. A user has selected the following text from their resume and wants it refined.
+
+Selected text: "{data.selectedText}"
+User instruction: "{data.userInstruction}"
+Section context: {data.sectionId}
+
+Rules:
+- Return ONLY the improved replacement text. No preamble, no quotes, no explanation.
+- Keep the same approximate length unless the instruction asks to expand or shorten.
+- Maintain professional tone appropriate for a resume.
+- If the instruction asks to remove something, return an empty string.
+- Output must be plain text only.
+"""
+
+    try:
+        result = await ai_service.call_api(
+            prompt,
+            temperature=0.4,
+            max_tokens=500,
+            request_id=request_id
+        )
+
+        if not result:
+            raise HTTPException(status_code=500, detail="AI refinement produced no result")
+
+        return {
+            "success": True,
+            "updatedText": result.strip()
+        }
+
+    except Exception as e:
+        logger.error(f"[{request_id}] Refine failed: {e}")
+        raise HTTPException(status_code=500, detail="AI refinement failed")
+
+
