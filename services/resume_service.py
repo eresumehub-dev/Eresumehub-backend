@@ -156,6 +156,7 @@ class ResumeService:
                 "version_number": next_version,
                 "resume_data": resume["resume_data"],
                 "score": resume["resume_data"].get("score"),
+                "created_by_user_id": resume["user_id"],
                 "created_at": datetime.now(timezone.utc).isoformat()
             }
             
