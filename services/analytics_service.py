@@ -457,23 +457,28 @@ class AnalyticsService:
             ttv_map = {}
             
             if not events_df.empty:
-                interactions = events_df[events_df['event_name'] == 'content_interaction']
-                for _, e in interactions.iterrows():
-                    key = (e['session_id'], e.get('properties', {}).get('resume_id'))
-                    interact_counts[key] = interact_counts.get(key, 0) + 1
+                # 1. Interactions Count (Vectorized)
+                interactions = events_df[events_df['event_name'] == 'content_interaction'].copy()
+                if not interactions.empty:
+                    interactions['resume_id'] = interactions['properties'].apply(lambda x: x.get('resume_id'))
+                    interact_counts = interactions.groupby(['session_id', 'resume_id']).size().to_dict()
                 
-                starts = events_df[events_df['event_name'] == 'resume_view_started']
-                for _, e in starts.iterrows():
-                    props = e.get('properties', {})
-                    ctx = e.get('context', {})
-                    unified_views.append({
-                        "id": e['event_id'], "resume_id": props.get('resume_id'),
-                        "session_id": e['session_id'], "viewed_at": e['timestamp'],
-                        "visitor_country": ctx.get('country') or "Unknown",
-                        "device_type": ctx.get('device_type') or "desktop",
-                        "referrer": ctx.get('referrer') or "Direct",
-                        "duration_seconds": 0, "max_scroll_depth": 0, "source": "v13_event"
-                    })
+                # 2. Unified Views (Vectorized)
+                starts = events_df[events_df['event_name'] == 'resume_view_started'].copy()
+                if not starts.empty:
+                    starts['resume_id'] = starts['properties'].apply(lambda x: x.get('resume_id'))
+                    starts['visitor_country'] = starts['context'].apply(lambda x: x.get('country') or "Unknown")
+                    starts['device_type'] = starts['context'].apply(lambda x: x.get('device_type') or "desktop")
+                    starts['referrer'] = starts['context'].apply(lambda x: x.get('referrer') or "Direct")
+                    
+                    # Convert to records efficiently
+                    starts_records = starts.rename(columns={'event_id': 'id', 'timestamp': 'viewed_at'})\
+                        [['id', 'resume_id', 'session_id', 'viewed_at', 'visitor_country', 'device_type', 'referrer']]\
+                        .to_dict('records')
+                    
+                    for record in starts_records:
+                        record.update({"duration_seconds": 0, "max_scroll_depth": 0, "source": "v13_event"})
+                        unified_views.append(record)
                 
                 heartbeats = events_df[events_df['event_name'] == 'resume_view_heartbeat']
                 if not heartbeats.empty:
@@ -527,7 +532,8 @@ class AnalyticsService:
                     rec["resume_id"] = res['id']
                     rv = views_df[views_df['resume_id'] == res['id']] if not views_df.empty else pd.DataFrame()
                     if not rv.empty and len(rv) > 10:
-                        ttv_vals = [ttv_map.get((row['session_id'], res['id'])) for _, row in rv.iterrows() if (row['session_id'], res['id']) in ttv_map]
+                        # Optimization: Avoid iterrows for TTV lookup (v16.8.1)
+                        ttv_vals = [ttv_map.get((sid, res['id'])) for sid in rv['session_id'] if (sid, res['id']) in ttv_map]
                         avg_ttv = sum(ttv_vals)/len(ttv_vals) if ttv_vals else 0
                         if avg_ttv > 3.0:
                             rec["fix"] = { "title": "Discovery Friction", "suggested": "Relocate Summary to Top", "points": 40 }
@@ -586,36 +592,47 @@ class AnalyticsService:
                     })
                 analytics['activities'] = activities
 
-            # 9.6 PER-RESUME METRICS (Premium Redesign)
+            # 9.6 PER-RESUME METRICS (Premium Redesign) - Vectorized
+            if not views_df.empty:
+                view_stats = views_df.groupby('resume_id').agg({
+                    'id': 'count',
+                    'duration_seconds': 'mean',
+                    'engagement_score': 'mean'
+                }).rename(columns={'id': 'views', 'duration_seconds': 'avg_duration', 'engagement_score': 'avg_engagement'})
+            else:
+                view_stats = pd.DataFrame(columns=['views', 'avg_duration', 'avg_engagement'])
+
+            ld_df = pd.DataFrame(legacy_downloads)
+            ld_counts = ld_df['resume_id'].value_counts() if not ld_df.empty else pd.Series(dtype=int)
+
+            contact_counts = pd.Series(dtype=int)
+            if not events_df.empty:
+                contact_events = events_df[events_df['event_name'].str.startswith('contact_')].copy()
+                if not contact_events.empty:
+                    contact_events['resume_id'] = contact_events['properties'].apply(lambda x: x.get('resume_id'))
+                    contact_counts = contact_events['resume_id'].value_counts()
+
             for r in resumes:
-                rv = views_df[views_df['resume_id'] == r['id']] if not views_df.empty else pd.DataFrame()
-                rd = [d for d in legacy_downloads if d.get('resume_id') == r['id']]
+                rid = r['id']
+                row = view_stats.loc[rid] if rid in view_stats.index else None
                 
-                # NEW: Aggregate Contact Clicks (WhatsApp, LinkedIn, Email)
-                contact_events = events_df[
-                    (events_df['event_name'].str.startswith('contact_')) & 
-                    (events_df['properties'].apply(lambda x: x.get('resume_id') == r['id']))
-                ] if not events_df.empty else pd.DataFrame()
-                contact_count = len(contact_events)
-
-                # Calculate Avg Duration
-                avg_dur = rv['duration_seconds'].mean() if not rv.empty and 'duration_seconds' in rv.columns else 0
-                avg_dur = 0 if pd.isna(avg_dur) else round(avg_dur, 1)
-
-                # Engagement Score (Weighted)
-                e_score = rv['engagement_score'].mean() if not rv.empty else 0
-                e_score = 0 if pd.isna(e_score) else round(e_score, 2)
+                views = int(row['views']) if row is not None else 0
+                avg_dur = round(float(row['avg_duration']), 1) if row is not None and not pd.isna(row['avg_duration']) else 0
+                e_score = round(float(row['avg_engagement']), 2) if row is not None and not pd.isna(row['avg_engagement']) else 0
+                
+                downloads = int(ld_counts.get(rid, 0))
+                contact_clicks = int(contact_counts.get(rid, 0))
                 
                 analytics['resume_performance'].append({
-                    "id": r['id'], 
+                    "id": rid, 
                     "title": r['title'], 
-                    "views": len(rv),
-                    "downloads": len(rd),
-                    "contact_clicks": contact_count,
+                    "views": views,
+                    "downloads": downloads,
+                    "contact_clicks": contact_clicks,
                     "avg_duration": avg_dur,
                     "engagement_score": e_score,
                     "success_probability": 0, # TODO: Implement true ML Predictor
-                    "insight_tag": "Trending" if len(rv) > 5 and e_score > 0.6 else "Stable"
+                    "insight_tag": "Trending" if views > 5 and e_score > 0.6 else "Stable"
                 })
 
             if not views_df.empty:
@@ -660,14 +677,30 @@ class AnalyticsService:
 
                 ttv = r.get('ttv_median', summary.get('ttv_median', 0))
                 engagement = r.get('engagement_score', 0)
+                downloads = r.get('downloads', 0)
+                conv_rate = (downloads / max(1, views)) * 100
                 
+                # 1. Weak Hook Nudge
                 if (rid, 'weak_hook') not in dismissed:
                     if ttv > (bench['ttv_median'] * 1.5) and engagement < bench['engagement_median']:
+                        # Confidence grows with sample size and metric severity
+                        conf = min(0.95, (views / 40) + (ttv / 10))
                         nudges.append({
                             "type": "weak_hook", "resume_id": rid, "resume_title": r['title'],
                             "title": "Your Narrative Hook is Dragging",
-                            "message": f"Readers are pausing {round(ttv, 1)}s before scrolling.",
-                            "confidence": min(0.95, views / 30), "action": "Relocate Summary", "impact": "🔥 High impact"
+                            "message": f"Readers are pausing {round(ttv, 1)}s before scrolling. Your intro might be too dense.",
+                            "confidence": round(conf, 2), "action": "Relocate Summary", "impact": "🔥 High impact"
+                        })
+
+                # 2. Conversion Leak Nudge (v16.8.0)
+                if (rid, 'conversion_leak') not in dismissed:
+                    if engagement > 0.6 and conv_rate < (bench['conversion_median'] * 0.8):
+                        conf = min(0.9, (views / 50) + (engagement / 2))
+                        nudges.append({
+                            "type": "conversion_leak", "resume_id": rid, "resume_title": r['title'],
+                            "title": "High Interest, Low Conversion",
+                            "message": f"Readers love your profile ({int(engagement*100)}% engagement), but downloads are below benchmark.",
+                            "confidence": round(conf, 2), "action": "Verify Contact Info", "impact": "💎 Premium Opportunity"
                         })
             # Final Prioritization (Impact x Confidence)
             nudges.sort(key=lambda x: x.get('confidence', 0), reverse=True)
@@ -679,11 +712,16 @@ class AnalyticsService:
     def _get_empty_analytics(self, power_score=0):
         return {
             "summary": {
-                "total_views": 0, "total_downloads": 0, "avg_time_spent": 0, 
+                "total_views": 0, "total_downloads": 0, "avg_time_spent": 0,
                 "conversion_rate": 0, "power_score": power_score,
-                "avg_ats_score": 0,
-                "total_resumes": 0, "analyzed_resumes": 0
+                "avg_ats_score": 0, "total_resumes": 0, "analyzed_resumes": 0,
+                "engaged_views": 0, "unique_viewers": 0,
+                "ttv_median": 0, "views_trend": None,
+                "downloads_trend": None, "score_trend": None
             },
+            "segments": {"device": {}, "referrer": {}, "ttu_median": 0},
+            "funnel": {"views": 0, "engagement": 0, "downloads": 0},
+            "nudges": [],
             "trends": [], "activities": [], "resume_performance": [],
             "geo_distribution": [], "device_stats": [],
             "recommendation": self._get_fallback_recommendation({}, "Resume")
@@ -703,7 +741,7 @@ class AnalyticsService:
             return float(obj)
         elif isinstance(obj, np.bool_):
             return bool(obj)
-        elif pd.isna(obj):  # Handle NaN/None
+        elif obj is None or (isinstance(obj, float) and np.isnan(obj)):
             return None
         return obj
 
